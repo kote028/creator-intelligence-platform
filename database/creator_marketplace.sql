@@ -1,0 +1,541 @@
+--
+-- PostgreSQL database dump
+--
+
+\restrict jjvBe7DJj24d8bUuRHKbCcLnEClCDctFXGTE8CQ34AJtM3mCRqOtzmtynm0jteM
+
+-- Dumped from database version 18.6
+-- Dumped by pg_dump version 18.6
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: brands; Type: TABLE; Schema: public; Owner: kote
+--
+
+CREATE TABLE public.brands (
+    brand_id integer NOT NULL,
+    company_name character varying(150) NOT NULL,
+    email character varying(255) NOT NULL,
+    website text,
+    industry character varying(100),
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.brands OWNER TO kote;
+
+--
+-- Name: brands_brand_id_seq; Type: SEQUENCE; Schema: public; Owner: kote
+--
+
+CREATE SEQUENCE public.brands_brand_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.brands_brand_id_seq OWNER TO kote;
+
+--
+-- Name: brands_brand_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: kote
+--
+
+ALTER SEQUENCE public.brands_brand_id_seq OWNED BY public.brands.brand_id;
+
+
+--
+-- Name: campaigns; Type: TABLE; Schema: public; Owner: kote
+--
+
+CREATE TABLE public.campaigns (
+    campaign_id integer NOT NULL,
+    brand_id integer NOT NULL,
+    campaign_name character varying(200) NOT NULL,
+    description text,
+    budget numeric(12,2) NOT NULL,
+    start_date date,
+    end_date date,
+    status character varying(50) DEFAULT 'active'::character varying,
+    target_niche character varying(100)
+);
+
+
+ALTER TABLE public.campaigns OWNER TO kote;
+
+--
+-- Name: campaigns_campaign_id_seq; Type: SEQUENCE; Schema: public; Owner: kote
+--
+
+CREATE SEQUENCE public.campaigns_campaign_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.campaigns_campaign_id_seq OWNER TO kote;
+
+--
+-- Name: campaigns_campaign_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: kote
+--
+
+ALTER SEQUENCE public.campaigns_campaign_id_seq OWNED BY public.campaigns.campaign_id;
+
+
+--
+-- Name: creator_metrics; Type: TABLE; Schema: public; Owner: kote
+--
+
+CREATE TABLE public.creator_metrics (
+    metric_id integer NOT NULL,
+    account_id integer NOT NULL,
+    followers bigint DEFAULT 0,
+    total_views bigint DEFAULT 0,
+    avg_views bigint DEFAULT 0,
+    total_likes bigint DEFAULT 0,
+    total_comments bigint DEFAULT 0,
+    engagement_rate numeric(5,2) DEFAULT 0.00,
+    recorded_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    metric_date date
+);
+
+
+ALTER TABLE public.creator_metrics OWNER TO kote;
+
+--
+-- Name: creator_metrics_metric_id_seq; Type: SEQUENCE; Schema: public; Owner: kote
+--
+
+CREATE SEQUENCE public.creator_metrics_metric_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.creator_metrics_metric_id_seq OWNER TO kote;
+
+--
+-- Name: creator_metrics_metric_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: kote
+--
+
+ALTER SEQUENCE public.creator_metrics_metric_id_seq OWNED BY public.creator_metrics.metric_id;
+
+
+--
+-- Name: creators; Type: TABLE; Schema: public; Owner: kote
+--
+
+CREATE TABLE public.creators (
+    creator_id integer NOT NULL,
+    username character varying(100) NOT NULL,
+    display_name character varying(150),
+    email character varying(255),
+    bio text,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    niche character varying(100),
+    country character varying(100),
+    city character varying(100)
+);
+
+
+ALTER TABLE public.creators OWNER TO kote;
+
+--
+-- Name: creators_creator_id_seq; Type: SEQUENCE; Schema: public; Owner: kote
+--
+
+CREATE SEQUENCE public.creators_creator_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.creators_creator_id_seq OWNER TO kote;
+
+--
+-- Name: creators_creator_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: kote
+--
+
+ALTER SEQUENCE public.creators_creator_id_seq OWNED BY public.creators.creator_id;
+
+
+--
+-- Name: social_accounts; Type: TABLE; Schema: public; Owner: kote
+--
+
+CREATE TABLE public.social_accounts (
+    account_id integer NOT NULL,
+    creator_id integer NOT NULL,
+    platform character varying(50) NOT NULL,
+    username character varying(100) NOT NULL,
+    profile_url text,
+    followers bigint DEFAULT 0,
+    following bigint DEFAULT 0,
+    total_posts integer DEFAULT 0,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.social_accounts OWNER TO kote;
+
+--
+-- Name: social_accounts_account_id_seq; Type: SEQUENCE; Schema: public; Owner: kote
+--
+
+CREATE SEQUENCE public.social_accounts_account_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.social_accounts_account_id_seq OWNER TO kote;
+
+--
+-- Name: social_accounts_account_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: kote
+--
+
+ALTER SEQUENCE public.social_accounts_account_id_seq OWNED BY public.social_accounts.account_id;
+
+
+--
+-- Name: sponsorships; Type: TABLE; Schema: public; Owner: kote
+--
+
+CREATE TABLE public.sponsorships (
+    sponsorship_id integer NOT NULL,
+    creator_id integer NOT NULL,
+    campaign_id integer NOT NULL,
+    agreed_amount numeric(12,2) NOT NULL,
+    status character varying(50) DEFAULT 'pending'::character varying,
+    start_date date,
+    end_date date,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.sponsorships OWNER TO kote;
+
+--
+-- Name: sponsorships_sponsorship_id_seq; Type: SEQUENCE; Schema: public; Owner: kote
+--
+
+CREATE SEQUENCE public.sponsorships_sponsorship_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.sponsorships_sponsorship_id_seq OWNER TO kote;
+
+--
+-- Name: sponsorships_sponsorship_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: kote
+--
+
+ALTER SEQUENCE public.sponsorships_sponsorship_id_seq OWNED BY public.sponsorships.sponsorship_id;
+
+
+--
+-- Name: brands brand_id; Type: DEFAULT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.brands ALTER COLUMN brand_id SET DEFAULT nextval('public.brands_brand_id_seq'::regclass);
+
+
+--
+-- Name: campaigns campaign_id; Type: DEFAULT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.campaigns ALTER COLUMN campaign_id SET DEFAULT nextval('public.campaigns_campaign_id_seq'::regclass);
+
+
+--
+-- Name: creator_metrics metric_id; Type: DEFAULT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.creator_metrics ALTER COLUMN metric_id SET DEFAULT nextval('public.creator_metrics_metric_id_seq'::regclass);
+
+
+--
+-- Name: creators creator_id; Type: DEFAULT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.creators ALTER COLUMN creator_id SET DEFAULT nextval('public.creators_creator_id_seq'::regclass);
+
+
+--
+-- Name: social_accounts account_id; Type: DEFAULT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.social_accounts ALTER COLUMN account_id SET DEFAULT nextval('public.social_accounts_account_id_seq'::regclass);
+
+
+--
+-- Name: sponsorships sponsorship_id; Type: DEFAULT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.sponsorships ALTER COLUMN sponsorship_id SET DEFAULT nextval('public.sponsorships_sponsorship_id_seq'::regclass);
+
+
+--
+-- Data for Name: brands; Type: TABLE DATA; Schema: public; Owner: kote
+--
+
+COPY public.brands (brand_id, company_name, email, website, industry, created_at) FROM stdin;
+1	TechNova	marketing@technova.com	https://technova.com	Technology	2026-08-24 02:30:42.089473
+2	FitLife	marketing@fitlife.com	https://fitlife.com	Fitness	2026-08-24 02:30:42.089473
+3	StyleHub	marketing@stylehub.com	https://stylehub.com	Fashion	2026-08-24 02:30:42.089473
+\.
+
+
+--
+-- Data for Name: campaigns; Type: TABLE DATA; Schema: public; Owner: kote
+--
+
+COPY public.campaigns (campaign_id, brand_id, campaign_name, description, budget, start_date, end_date, status, target_niche) FROM stdin;
+1	1	AI Laptop Launch	Promote our new AI-powered laptop.	150000.00	2026-09-01	2026-09-30	active	Technology
+2	2	Fitness Challenge	Promote our new fitness program.	75000.00	2026-09-05	2026-10-05	active	Fitness
+3	3	Summer Fashion	Promote our latest fashion collection.	100000.00	2026-09-10	2026-10-10	active	Fashion
+\.
+
+
+--
+-- Data for Name: creator_metrics; Type: TABLE DATA; Schema: public; Owner: kote
+--
+
+COPY public.creator_metrics (metric_id, account_id, followers, total_views, avg_views, total_likes, total_comments, engagement_rate, recorded_at, metric_date) FROM stdin;
+1	1	25000	500000	42000	35000	2400	7.50	2026-08-24 02:26:50.781862	2026-08-01
+2	1	30000	650000	52000	48000	3200	7.90	2026-08-24 02:44:08.67335	2026-09-01
+3	2	70000	1000000	60000	70000	5000	6.80	2026-08-24 02:59:11.635924	2026-08-01
+4	2	85000	1300000	75000	95000	7000	7.20	2026-08-24 02:59:11.635924	2026-09-01
+5	3	100000	2000000	80000	140000	9000	8.50	2026-08-24 02:59:27.445196	2026-08-01
+6	3	120000	2500000	95000	180000	12000	9.10	2026-08-24 02:59:27.445196	2026-09-01
+7	4	50000	800000	40000	50000	3000	6.20	2026-08-24 02:59:34.489552	2026-08-01
+8	4	60000	950000	48000	65000	4200	6.70	2026-08-24 02:59:34.489552	2026-09-01
+\.
+
+
+--
+-- Data for Name: creators; Type: TABLE DATA; Schema: public; Owner: kote
+--
+
+COPY public.creators (creator_id, username, display_name, email, bio, created_at, niche, country, city) FROM stdin;
+1	kote028	Prasann Kote	your@email.com	AI and software developer	2026-08-24 00:24:27.715105	Technology	India	Dharwad
+2	tech_creator	Rahul Tech	rahul@example.com	Technology and gadgets creator	2026-08-24 02:58:17.363926	Technology	India	Bangalore
+3	fitness_creator	Arjun Fitness	arjun@example.com	Fitness and lifestyle creator	2026-08-24 02:58:17.363926	Fitness	India	Mumbai
+4	fashion_creator	Sneha Style	sneha@example.com	Fashion and lifestyle creator	2026-08-24 02:58:17.363926	Fashion	India	Delhi
+\.
+
+
+--
+-- Data for Name: social_accounts; Type: TABLE DATA; Schema: public; Owner: kote
+--
+
+COPY public.social_accounts (account_id, creator_id, platform, username, profile_url, followers, following, total_posts, created_at) FROM stdin;
+1	1	Instagram	example_creator	https://instagram.com/example_creator	25000	500	120	2026-08-24 02:18:46.739841
+2	2	YouTube	rahultech	https://youtube.com/@rahultech	85000	300	450	2026-08-24 02:58:48.241801
+3	3	Instagram	arjunfitness	https://instagram.com/arjunfitness	120000	800	600	2026-08-24 02:58:48.241801
+4	4	Instagram	snehastyle	https://instagram.com/snehastyle	60000	900	350	2026-08-24 02:58:48.241801
+\.
+
+
+--
+-- Data for Name: sponsorships; Type: TABLE DATA; Schema: public; Owner: kote
+--
+
+COPY public.sponsorships (sponsorship_id, creator_id, campaign_id, agreed_amount, status, start_date, end_date, created_at) FROM stdin;
+1	1	1	25000.00	accepted	2026-09-01	2026-09-30	2026-08-24 02:36:11.245979
+\.
+
+
+--
+-- Name: brands_brand_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kote
+--
+
+SELECT pg_catalog.setval('public.brands_brand_id_seq', 3, true);
+
+
+--
+-- Name: campaigns_campaign_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kote
+--
+
+SELECT pg_catalog.setval('public.campaigns_campaign_id_seq', 3, true);
+
+
+--
+-- Name: creator_metrics_metric_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kote
+--
+
+SELECT pg_catalog.setval('public.creator_metrics_metric_id_seq', 8, true);
+
+
+--
+-- Name: creators_creator_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kote
+--
+
+SELECT pg_catalog.setval('public.creators_creator_id_seq', 4, true);
+
+
+--
+-- Name: social_accounts_account_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kote
+--
+
+SELECT pg_catalog.setval('public.social_accounts_account_id_seq', 4, true);
+
+
+--
+-- Name: sponsorships_sponsorship_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kote
+--
+
+SELECT pg_catalog.setval('public.sponsorships_sponsorship_id_seq', 2, true);
+
+
+--
+-- Name: brands brands_email_key; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.brands
+    ADD CONSTRAINT brands_email_key UNIQUE (email);
+
+
+--
+-- Name: brands brands_pkey; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.brands
+    ADD CONSTRAINT brands_pkey PRIMARY KEY (brand_id);
+
+
+--
+-- Name: campaigns campaigns_pkey; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.campaigns
+    ADD CONSTRAINT campaigns_pkey PRIMARY KEY (campaign_id);
+
+
+--
+-- Name: creator_metrics creator_metrics_pkey; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.creator_metrics
+    ADD CONSTRAINT creator_metrics_pkey PRIMARY KEY (metric_id);
+
+
+--
+-- Name: creators creators_pkey; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.creators
+    ADD CONSTRAINT creators_pkey PRIMARY KEY (creator_id);
+
+
+--
+-- Name: creators creators_username_key; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.creators
+    ADD CONSTRAINT creators_username_key UNIQUE (username);
+
+
+--
+-- Name: social_accounts social_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.social_accounts
+    ADD CONSTRAINT social_accounts_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: sponsorships sponsorships_pkey; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.sponsorships
+    ADD CONSTRAINT sponsorships_pkey PRIMARY KEY (sponsorship_id);
+
+
+--
+-- Name: sponsorships unique_creator_campaign; Type: CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.sponsorships
+    ADD CONSTRAINT unique_creator_campaign UNIQUE (creator_id, campaign_id);
+
+
+--
+-- Name: creator_metrics fk_account; Type: FK CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.creator_metrics
+    ADD CONSTRAINT fk_account FOREIGN KEY (account_id) REFERENCES public.social_accounts(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: campaigns fk_campaign_brand; Type: FK CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.campaigns
+    ADD CONSTRAINT fk_campaign_brand FOREIGN KEY (brand_id) REFERENCES public.brands(brand_id) ON DELETE CASCADE;
+
+
+--
+-- Name: social_accounts fk_creator; Type: FK CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.social_accounts
+    ADD CONSTRAINT fk_creator FOREIGN KEY (creator_id) REFERENCES public.creators(creator_id) ON DELETE CASCADE;
+
+
+--
+-- Name: sponsorships fk_sponsorship_campaign; Type: FK CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.sponsorships
+    ADD CONSTRAINT fk_sponsorship_campaign FOREIGN KEY (campaign_id) REFERENCES public.campaigns(campaign_id) ON DELETE CASCADE;
+
+
+--
+-- Name: sponsorships fk_sponsorship_creator; Type: FK CONSTRAINT; Schema: public; Owner: kote
+--
+
+ALTER TABLE ONLY public.sponsorships
+    ADD CONSTRAINT fk_sponsorship_creator FOREIGN KEY (creator_id) REFERENCES public.creators(creator_id) ON DELETE CASCADE;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+\unrestrict jjvBe7DJj24d8bUuRHKbCcLnEClCDctFXGTE8CQ34AJtM3mCRqOtzmtynm0jteM
+
