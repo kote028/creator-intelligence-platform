@@ -1,5 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+
 
 from app.database import Base
 
@@ -16,3 +18,10 @@ class Creator(Base):
     niche = Column(String(100), nullable=True)
     country = Column(String(100), nullable=True)
     city = Column(String(100), nullable=True)
+
+
+    social_accounts = relationship(
+        "SocialAccount",
+        back_populates="creator",
+        cascade="all, delete-orphan"
+    )

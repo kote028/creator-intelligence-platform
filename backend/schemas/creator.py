@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
+
+from schemas.social_account import SocialAccountResponse
 
 
 class CreatorCreate(BaseModel):
@@ -21,6 +23,8 @@ class CreatorResponse(BaseModel):
     niche: Optional[str] = None
     country: Optional[str] = None
     city: Optional[str] = None
+
+    social_accounts: List[SocialAccountResponse] = []
 
     class Config:
         from_attributes = True

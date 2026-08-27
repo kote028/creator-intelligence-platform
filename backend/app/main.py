@@ -1,4 +1,8 @@
 from routes.creators import router as creator_router
+from routes.social_account import router as social_account_router
+from routes.creator_metrics import router as creator_metric_router
+
+
 from fastapi import FastAPI
 from sqlalchemy import text
 from app.database import engine
@@ -34,3 +38,6 @@ def database_test():
             "result": result.scalar()
         }
 
+app.include_router(creator_router)
+app.include_router(social_account_router)
+app.include_router(creator_metric_router)
