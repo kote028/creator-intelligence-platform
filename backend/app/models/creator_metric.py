@@ -18,8 +18,7 @@ class CreatorMetric(Base):
 
     metric_id = Column(
         Integer,
-        primary_key=True,
-        index=True
+        primary_key=True
     )
 
     account_id = Column(

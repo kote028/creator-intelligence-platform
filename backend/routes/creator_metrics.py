@@ -8,6 +8,14 @@ from schemas.creator_metric import (
     CreatorMetricResponse
 )
 
+from app.auth_dependencies import (
+    get_current_user,
+    require_creator,
+    require_brand
+)
+
+from app.models.user import User
+
 
 router = APIRouter(
     prefix="/creator-metrics",
@@ -56,3 +64,22 @@ def get_account_metrics(
     )
 
     return metrics
+
+@router.get("/creator-only")
+def creator_only(
+    current_user: User = Depends(require_creator)
+):
+    return {
+        "message": "You have creator access",
+        "user_id": current_user.user_id
+    }
+
+
+@router.get("/brand-only")
+def brand_only(
+    current_user: User = Depends(require_brand)
+):
+    return {
+        "message": "You have brand access",
+        "user_id": current_user.user_id
+    }

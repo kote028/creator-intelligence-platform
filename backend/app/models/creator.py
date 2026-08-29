@@ -9,7 +9,7 @@ from app.database import Base
 class Creator(Base):
     __tablename__ = "creators"
 
-    creator_id = Column(Integer, primary_key=True, index=True)
+    creator_id = Column(Integer, primary_key=True)
     username = Column(String(100), unique=True, nullable=False)
     display_name = Column(String(150), nullable=True)
     email = Column(String(255), nullable=True)

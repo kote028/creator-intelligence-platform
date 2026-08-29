@@ -9,7 +9,7 @@ from app.database import Base
 class SocialAccount(Base):
     __tablename__ = "social_accounts"
 
-    account_id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, primary_key=True)
 
     creator_id = Column(
         Integer,
