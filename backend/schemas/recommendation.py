@@ -1,23 +1,32 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class CreatorRecommendationResponse(BaseModel):
     creator_id: int
-    username: str
-    display_name: str | None = None
-    niche: str | None = None
-    country: str | None = None
-
+    creator_name: str
     platform: str
-
     followers: int
-    average_views: int
-    engagement_rate: float
-
-    follower_growth: float
-    view_growth: float
-
     performance_score: float
     match_score: float
+    follower_score: float
 
-    reasons: list[str]
+    class Config:
+        from_attributes = True
+
+
+class CreatorRecommendation(BaseModel):
+    creator_id: int
+    creator_name: str
+
+    niche: Optional[str] = None
+    city: Optional[str] = None
+    platform: Optional[str] = None
+
+    followers: int
+    engagement_rate: float
+
+    marketplace_score: float
+
+    class Config:
+        from_attributes = True

@@ -10,6 +10,10 @@ from schemas.creator import CreatorCreate, CreatorResponse
 from schemas.performance import CreatorPerformanceResponse
 from schemas.ranking import CreatorRankingResponse
 
+from sqlalchemy import and_
+from typing import Optional
+from schemas.recommendation import CreatorRecommendation
+
 from app.scoring import calculate_performance_score
 
 
@@ -271,27 +275,234 @@ def get_creator_performance(
         "performance_score": performance_score
     }
 
-
 @router.get(
-    "/{creator_id}",
-    response_model=CreatorResponse
+    "/discover",
+    response_model=list[CreatorRecommendation]
 )
-def get_creator(
-    creator_id: int,
+def discover_creators(
+    platform: Optional[str] = None,
+    niche: Optional[str] = None,
+    city: Optional[str] = None,
+    min_followers: Optional[int] = None,
+    max_followers: Optional[int] = None,
+    min_engagement: Optional[float] = None,
+    sort_by: str = "performance",
+    page: int = 1,
+    limit: int = 20,
     db: Session = Depends(get_db)
 ):
-    creator = (
-        db.query(Creator)
-        .filter(
-            Creator.creator_id == creator_id
+    """
+    Search and rank creators using their latest metrics.
+    """
+
+    if page < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="page must be >= 1"
         )
-        .first()
+
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 100"
+        )
+
+    allowed_sorting = {
+        "performance",
+        "followers",
+        "engagement"
+    }
+
+    if sort_by not in allowed_sorting:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "sort_by must be one of: "
+                "performance, followers, engagement"
+            )
+        )
+
+    previous_followers = (
+    db.query(
+        CreatorMetric.account_id,
+        CreatorMetric.followers,
+        CreatorMetric.avg_views,
+        CreatorMetric.engagement_rate,
+        CreatorMetric.metric_date,
+        CreatorMetric.metric_id,
+    )
+        .order_by(
+            CreatorMetric.account_id,
+            CreatorMetric.metric_date.desc(),
+            CreatorMetric.metric_id.desc()
+        )
+        .all()
     )
 
-    if creator is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Creator not found"
+    metric_history = {}
+
+    for metric in previous_followers:
+        metric_history.setdefault(
+            metric.account_id,
+            []
+        ).append(metric)
+
+    accounts_query = (
+        db.query(
+            Creator,
+            SocialAccount
+        )
+        .join(
+            SocialAccount,
+            SocialAccount.creator_id
+            == Creator.creator_id
+        )
+    )
+
+    if platform:
+        accounts_query = accounts_query.filter(
+            SocialAccount.platform.ilike(platform)
         )
 
-    return creator
+    if niche:
+        accounts_query = accounts_query.filter(
+            Creator.niche.ilike(niche)
+        )
+
+    if city:
+        accounts_query = accounts_query.filter(
+            Creator.city.ilike(city)
+        )
+
+    accounts = accounts_query.all()
+
+    recommendations = []
+
+    for creator, account in accounts:
+
+        metrics = metric_history.get(
+            account.account_id,
+            []
+        )
+
+        if not metrics:
+            continue
+
+        latest = metrics[0]
+
+        if (
+            min_followers is not None
+            and latest.followers < min_followers
+        ):
+            continue
+
+        if (
+            max_followers is not None
+            and latest.followers > max_followers
+        ):
+            continue
+
+        if (
+            min_engagement is not None
+            and float(latest.engagement_rate or 0)
+            < min_engagement
+        ):
+            continue
+
+        follower_growth = 0.0
+        view_growth = 0.0
+
+        if len(metrics) >= 2:
+
+            previous = metrics[1]
+
+            if previous.followers > 0:
+                follower_growth = (
+                    (
+                        latest.followers
+                        - previous.followers
+                    )
+                    / previous.followers
+                ) * 100
+
+            if previous.avg_views > 0:
+                view_growth = (
+                    (
+                        latest.avg_views
+                        - previous.avg_views
+                    )
+                    / previous.avg_views
+                ) * 100
+
+        view_ratio = 0.0
+
+        if latest.followers > 0:
+            view_ratio = (
+                latest.avg_views
+                / latest.followers
+            )
+
+        performance_score = calculate_performance_score(
+            engagement_rate=float(
+                latest.engagement_rate or 0
+            ),
+            average_views=int(
+                latest.avg_views or 0
+            ),
+            follower_growth=follower_growth,
+            followers=int(
+                latest.followers or 0
+            ),
+            view_ratio=view_ratio
+        )
+
+        recommendations.append(
+            CreatorRecommendation(
+                creator_id=creator.creator_id,
+                creator_name=(
+                    creator.display_name
+                    or creator.username
+                    or "Unknown Creator"
+                ),
+                niche=creator.niche,
+                city=creator.city,
+                platform=account.platform,
+                followers=int(
+                    latest.followers or 0
+                ),
+                engagement_rate=float(
+                    latest.engagement_rate or 0
+                ),
+                marketplace_score=performance_score
+            )
+        )
+
+    if sort_by == "followers":
+        recommendations.sort(
+            key=lambda creator: (
+                -creator.followers,
+                creator.creator_id
+            )
+        )
+
+    elif sort_by == "engagement":
+        recommendations.sort(
+            key=lambda creator: (
+                -creator.engagement_rate,
+                creator.creator_id
+            )
+        )
+
+    else:
+        recommendations.sort(
+            key=lambda creator: (
+                -creator.marketplace_score,
+                -creator.followers,
+                creator.creator_id
+            )
+        )
+
+    start = (page - 1) * limit
+    end = start + limit
+
+    return recommendations[start:end]
