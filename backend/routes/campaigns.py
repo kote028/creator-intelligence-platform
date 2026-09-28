@@ -21,6 +21,7 @@ from app.models.brand import Brand
 
 from schemas.campaign import (
     CampaignCreate,
+    CampaignUpdate,
     CampaignResponse
 )
 
@@ -378,3 +379,58 @@ def get_campaign_recommendations(
     )
 
     return recommendations
+
+
+@router.put(
+    "/{campaign_id}",
+    response_model=CampaignResponse
+)
+def update_campaign(
+    campaign_id: int,
+    campaign_update: CampaignUpdate,
+    db: Session = Depends(get_db)
+):
+    campaign = (
+        db.query(Campaign)
+        .filter(Campaign.campaign_id == campaign_id)
+        .first()
+    )
+
+    if campaign is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Campaign not found"
+        )
+
+    for field, value in campaign_update.model_dump(exclude_unset=True).items():
+        setattr(campaign, field, value)
+
+    db.commit()
+    db.refresh(campaign)
+
+    return campaign
+
+
+@router.delete("/{campaign_id}")
+def delete_campaign(
+    campaign_id: int,
+    db: Session = Depends(get_db)
+):
+    campaign = (
+        db.query(Campaign)
+        .filter(Campaign.campaign_id == campaign_id)
+        .first()
+    )
+
+    if campaign is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Campaign not found"
+        )
+
+    db.delete(campaign)
+    db.commit()
+
+    return {
+        "message": f"Campaign {campaign_id} successfully deleted"
+    }

@@ -5,7 +5,8 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     DateTime,
-    Date
+    Date,
+    Index
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -15,6 +16,15 @@ from app.database import Base
 
 class CreatorMetric(Base):
     __tablename__ = "creator_metrics"
+
+    __table_args__ = (
+        Index(
+            "ix_creator_metrics_account_date_id",
+            "account_id",
+            "metric_date",
+            "metric_id"
+        ),
+    )
 
     metric_id = Column(
         Integer,

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -7,14 +7,6 @@ from schemas.creator_metric import (
     CreatorMetricCreate,
     CreatorMetricResponse
 )
-
-from app.auth_dependencies import (
-    get_current_user,
-    require_creator,
-    require_brand
-)
-
-from app.models.user import User
 
 
 router = APIRouter(
@@ -48,6 +40,7 @@ def create_metric(
 
     return new_metric
 
+
 @router.get(
     "/account/{account_id}",
     response_model=list[CreatorMetricResponse]
@@ -65,21 +58,52 @@ def get_account_metrics(
 
     return metrics
 
-@router.get("/creator-only")
-def creator_only(
-    current_user: User = Depends(require_creator)
+
+@router.get(
+    "/account/{account_id}/latest",
+    response_model=CreatorMetricResponse
+)
+def get_latest_account_metric(
+    account_id: int,
+    db: Session = Depends(get_db)
 ):
-    return {
-        "message": "You have creator access",
-        "user_id": current_user.user_id
-    }
+    metric = (
+        db.query(CreatorMetric)
+        .filter(CreatorMetric.account_id == account_id)
+        .order_by(CreatorMetric.metric_date.desc(), CreatorMetric.metric_id.desc())
+        .first()
+    )
+
+    if metric is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No metrics found for this account"
+        )
+
+    return metric
 
 
-@router.get("/brand-only")
-def brand_only(
-    current_user: User = Depends(require_brand)
+@router.delete("/{metric_id}")
+def delete_metric(
+    metric_id: int,
+    db: Session = Depends(get_db)
 ):
+    metric = (
+        db.query(CreatorMetric)
+        .filter(CreatorMetric.metric_id == metric_id)
+        .first()
+    )
+
+    if metric is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Metric not found"
+        )
+
+    db.delete(metric)
+    db.commit()
+
     return {
-        "message": "You have brand access",
-        "user_id": current_user.user_id
+        "message": f"Metric {metric_id} successfully deleted"
     }
+

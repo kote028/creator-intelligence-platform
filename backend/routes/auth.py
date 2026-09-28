@@ -153,17 +153,9 @@ def get_me(
     return {
         "user_id": current_user.user_id,
         "email": current_user.email,
-        "role": current_user.role
-    }
-
-@router.get("/me")
-def get_me(
-    current_user: User = Depends(get_current_user)
-):
-    return {
-        "user_id": current_user.user_id,
-        "email": current_user.email,
-        "role": current_user.role
+        "role": current_user.role,
+        "creator_id": current_user.creator.creator_id if current_user.creator else None,
+        "brand_id": current_user.brand.brand_id if current_user.brand else None
     }
 
 

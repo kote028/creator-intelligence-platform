@@ -6,7 +6,10 @@ from app.models.creator import Creator
 from app.models.social_account import SocialAccount
 from app.models.creator_metric import CreatorMetric
 
-from schemas.creator import CreatorCreate, CreatorResponse
+from app.models.user import User
+from app.auth_dependencies import get_current_user, require_creator
+
+from schemas.creator import CreatorCreate, CreatorUpdate, CreatorResponse
 from schemas.performance import CreatorPerformanceResponse
 from schemas.ranking import CreatorRankingResponse
 
@@ -28,6 +31,13 @@ def create_creator(
     creator: CreatorCreate,
     db: Session = Depends(get_db)
 ):
+    existing = db.query(Creator).filter(Creator.username == creator.username).first()
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Username already taken"
+        )
+
     new_creator = Creator(
         username=creator.username,
         display_name=creator.display_name,
@@ -42,6 +52,71 @@ def create_creator(
     db.commit()
     db.refresh(new_creator)
 
+    return new_creator
+
+
+@router.get("/me", response_model=CreatorResponse)
+def get_my_creator_profile(
+    current_user: User = Depends(require_creator),
+    db: Session = Depends(get_db)
+):
+    if not current_user.creator:
+        raise HTTPException(
+            status_code=404,
+            detail="Creator profile not found for this account"
+        )
+    return current_user.creator
+
+
+@router.put("/me", response_model=CreatorResponse)
+def update_my_creator_profile(
+    update_data: CreatorUpdate,
+    current_user: User = Depends(require_creator),
+    db: Session = Depends(get_db)
+):
+    creator = current_user.creator
+    if not creator:
+        raise HTTPException(
+            status_code=404,
+            detail="Creator profile not found for this account"
+        )
+    for field, value in update_data.model_dump(exclude_unset=True).items():
+        setattr(creator, field, value)
+    db.commit()
+    db.refresh(creator)
+    return creator
+
+
+@router.post("/me", response_model=CreatorResponse)
+def create_my_creator_profile(
+    creator: CreatorCreate,
+    current_user: User = Depends(require_creator),
+    db: Session = Depends(get_db)
+):
+    if current_user.creator:
+        raise HTTPException(
+            status_code=400,
+            detail="Creator profile already exists for this account"
+        )
+    existing = db.query(Creator).filter(Creator.username == creator.username).first()
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Username already taken"
+        )
+    new_creator = Creator(
+        user_id=current_user.user_id,
+        username=creator.username,
+        display_name=creator.display_name,
+        email=creator.email or current_user.email,
+        bio=creator.bio,
+        niche=creator.niche,
+        country=creator.country,
+        city=creator.city
+    )
+    db.add(new_creator)
+    db.commit()
+    db.refresh(new_creator)
     return new_creator
 
 
@@ -506,3 +581,75 @@ def discover_creators(
     end = start + limit
 
     return recommendations[start:end]
+
+
+@router.get("/{creator_id}", response_model=CreatorResponse)
+def get_creator(
+    creator_id: int,
+    db: Session = Depends(get_db)
+):
+    creator = (
+        db.query(Creator)
+        .filter(Creator.creator_id == creator_id)
+        .first()
+    )
+
+    if creator is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Creator not found"
+        )
+
+    return creator
+
+
+@router.put("/{creator_id}", response_model=CreatorResponse)
+def update_creator(
+    creator_id: int,
+    creator_update: CreatorUpdate,
+    db: Session = Depends(get_db)
+):
+    creator = (
+        db.query(Creator)
+        .filter(Creator.creator_id == creator_id)
+        .first()
+    )
+
+    if creator is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Creator not found"
+        )
+
+    for field, value in creator_update.model_dump(exclude_unset=True).items():
+        setattr(creator, field, value)
+
+    db.commit()
+    db.refresh(creator)
+
+    return creator
+
+
+@router.delete("/{creator_id}")
+def delete_creator(
+    creator_id: int,
+    db: Session = Depends(get_db)
+):
+    creator = (
+        db.query(Creator)
+        .filter(Creator.creator_id == creator_id)
+        .first()
+    )
+
+    if creator is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Creator not found"
+        )
+
+    db.delete(creator)
+    db.commit()
+
+    return {
+        "message": f"Creator {creator_id} successfully deleted"
+    }

@@ -7,15 +7,24 @@ from routes.sponsorships import router as sponsorship_router
 from routes.auth import router as auth_router
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import engine
+from app.config import ALLOWED_ORIGINS
 
 app = FastAPI(
     title="Creator Marketplace API",
     description="API for connecting brands with content creators",
     version="1.0.0"
 )
-app.include_router(creator_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -42,10 +51,11 @@ def database_test():
         }
 
 
+app.include_router(auth_router)
+app.include_router(creator_router)
 app.include_router(social_account_router)
 app.include_router(creator_metric_router)
 app.include_router(brand_router)
 app.include_router(campaign_router)
 app.include_router(sponsorship_router)
-app.include_router(auth_router)
 

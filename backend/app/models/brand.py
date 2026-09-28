@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -11,6 +11,13 @@ class Brand(Base):
     brand_id = Column(
         Integer,
         primary_key=True
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        unique=True,
+        nullable=True
     )
 
     company_name = Column(
@@ -38,6 +45,8 @@ class Brand(Base):
         DateTime,
         server_default=func.current_timestamp()
     )
+
+    user = relationship("User", back_populates="brand")
 
     campaigns = relationship(
         "Campaign",

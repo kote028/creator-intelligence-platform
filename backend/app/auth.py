@@ -4,9 +4,11 @@ import bcrypt
 from jose import JWTError, jwt
 
 
-SECRET_KEY = "change-this-secret-key"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+from app.config import (
+    SECRET_KEY,
+    ALGORITHM,
+    ACCESS_TOKEN_EXPIRE_MINUTES
+)
 
 
 def hash_password(password: str) -> str:

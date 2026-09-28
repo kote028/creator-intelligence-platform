@@ -4,7 +4,7 @@ from sqlalchemy import (
     String,
     DateTime
 )
-
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -37,4 +37,16 @@ class User(Base):
     created_at = Column(
         DateTime,
         server_default=func.current_timestamp()
+    )
+
+    creator = relationship(
+        "Creator",
+        back_populates="user",
+        uselist=False
+    )
+
+    brand = relationship(
+        "Brand",
+        back_populates="user",
+        uselist=False
     )

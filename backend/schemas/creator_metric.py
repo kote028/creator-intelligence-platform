@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import date
 from decimal import Decimal
@@ -16,6 +16,8 @@ class CreatorMetricCreate(BaseModel):
 
 
 class CreatorMetricResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     metric_id: int
     account_id: int
     followers: int
@@ -25,6 +27,3 @@ class CreatorMetricResponse(BaseModel):
     total_comments: int
     engagement_rate: Decimal
     metric_date: Optional[date] = None
-
-    class Config:
-        from_attributes = True

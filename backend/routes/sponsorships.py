@@ -119,14 +119,28 @@ def create_sponsorship(
     return new_sponsorship
 
 
+ALLOWED_TRANSITIONS = {
+    "pending": {"accepted", "rejected", "cancelled"},
+    "accepted": {"in_progress", "cancelled"},
+    "in_progress": {"completed", "cancelled"},
+    "rejected": set(),
+    "completed": set(),
+    "cancelled": set()
+}
+
+
 @router.get(
     "/",
     response_model=list[SponsorshipResponse]
 )
 def get_sponsorships(
+    status: str | None = None,
     db: Session = Depends(get_db)
 ):
-    return db.query(Sponsorship).all()
+    query = db.query(Sponsorship)
+    if status:
+        query = query.filter(Sponsorship.status == status)
+    return query.all()
 
 
 @router.get(
@@ -187,12 +201,50 @@ def update_sponsorship_status(
             detail="Invalid sponsorship status"
         )
 
+    allowed = ALLOWED_TRANSITIONS.get(sponsorship.status, set())
+    if status_update.status not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot transition status from '{sponsorship.status}' to '{status_update.status}'. "
+                f"Allowed transitions: {sorted(list(allowed)) or 'None (terminal state)'}"
+            )
+        )
+
     sponsorship.status = status_update.status
 
     db.commit()
     db.refresh(sponsorship)
 
     return sponsorship
+
+
+@router.delete("/{sponsorship_id}")
+def delete_sponsorship(
+    sponsorship_id: int,
+    db: Session = Depends(get_db)
+):
+    sponsorship = (
+        db.query(Sponsorship)
+        .filter(
+            Sponsorship.sponsorship_id
+            == sponsorship_id
+        )
+        .first()
+    )
+
+    if sponsorship is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Sponsorship not found"
+        )
+
+    db.delete(sponsorship)
+    db.commit()
+
+    return {
+        "message": f"Sponsorship {sponsorship_id} successfully deleted"
+    }
 
 
 @router.get(
