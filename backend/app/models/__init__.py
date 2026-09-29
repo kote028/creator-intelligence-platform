@@ -5,3 +5,4 @@ from app.models.brand import Brand
 from app.models.campaign import Campaign
 from app.models.sponsorship import Sponsorship
 from app.models.user import User
+from app.models.campaign_result import CampaignResult

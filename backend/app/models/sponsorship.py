@@ -6,6 +6,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     UniqueConstraint
 )
 
@@ -19,6 +20,7 @@ class Sponsorship(Base):
     __tablename__ = "sponsorships"
 
     __table_args__ = (
+        Index("ix_sponsorships_status_initiator", "status", "initiated_by"),
         UniqueConstraint(
             "creator_id",
             "campaign_id",
@@ -54,6 +56,15 @@ class Sponsorship(Base):
         nullable=False
     )
 
+    initiated_by = Column(
+        String(20),
+        nullable=False,
+        default="brand",
+        server_default="brand",
+    )
+
+    application_message = Column(String(2000), nullable=True)
+
     status = Column(
         String(50),
         default="pending"
@@ -81,4 +92,11 @@ class Sponsorship(Base):
     campaign = relationship(
         "Campaign",
         back_populates="sponsorships"
+    )
+
+    result = relationship(
+        "CampaignResult",
+        back_populates="sponsorship",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
