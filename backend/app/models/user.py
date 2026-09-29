@@ -29,6 +29,13 @@ class User(Base):
         nullable=False
     )
 
+    google_subject = Column(
+        String(255),
+        unique=True,
+        nullable=True,
+        index=True,
+    )
+
     role = Column(
         String(20),
         nullable=False

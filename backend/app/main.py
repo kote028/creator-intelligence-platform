@@ -5,6 +5,7 @@ from routes.brands import router as brand_router
 from routes.campaigns import router as campaign_router
 from routes.sponsorships import router as sponsorship_router
 from routes.auth import router as auth_router
+from routes.intelligence import router as intelligence_router
 
 import asyncio
 import logging
@@ -91,3 +92,4 @@ app.include_router(creator_metric_router)
 app.include_router(brand_router)
 app.include_router(campaign_router)
 app.include_router(sponsorship_router)
+app.include_router(intelligence_router)

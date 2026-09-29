@@ -1,4 +1,31 @@
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class IntelligenceTurn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=2000, strip_whitespace=True)
+
+
+class IntelligenceAskRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=1000, strip_whitespace=True)
+    conversation: list[IntelligenceTurn] = Field(default_factory=list, max_length=8)
+
+
+class IntelligenceSource(BaseModel):
+    source_id: str
+    kind: str
+    label: str
+    facts: dict[str, Any]
+
+
+class IntelligenceAskResponse(BaseModel):
+    answer: str
+    provider: str
+    sources: list[IntelligenceSource]
+    suggested_questions: list[str] = Field(default_factory=list)
+    grounded: bool = True
 
 
 class SemanticCreatorResult(BaseModel):
@@ -26,6 +53,33 @@ class SemanticSearchResponse(BaseModel):
     page: int
     limit: int
     results: list[SemanticCreatorResult]
+
+
+class CreatorDirectoryItem(BaseModel):
+    creator_id: int
+    username: str
+    display_name: str | None = None
+    bio: str | None = None
+    niche: str | None = None
+    country: str | None = None
+    city: str | None = None
+    platform: str | None = None
+    followers: int = 0
+    average_views: int = 0
+    engagement_rate: float = 0
+    performance_score: float = 0
+    has_metrics: bool = False
+    relevance_score: float | None = None
+
+
+class CreatorDirectoryResponse(BaseModel):
+    page: int
+    limit: int
+    total: int
+    total_pages: int
+    niches: list[str] = Field(default_factory=list)
+    platforms: list[str] = Field(default_factory=list)
+    results: list[CreatorDirectoryItem]
 
 
 class AdvertisingFieldInsight(BaseModel):

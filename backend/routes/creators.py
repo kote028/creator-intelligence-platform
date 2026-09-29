@@ -21,6 +21,8 @@ from schemas.intelligence import (
     AdvertisingInsightsResponse,
     SemanticCreatorResult,
     SemanticSearchResponse,
+    CreatorDirectoryItem,
+    CreatorDirectoryResponse,
 )
 from app.advertising import ADVERTISING_FIELDS, creator_document
 from app.semantic_search import keyword_overlap, semantic_scores
@@ -253,6 +255,124 @@ def get_creator_rankings(
     )
 
     return rankings
+
+
+@router.get("/directory", response_model=CreatorDirectoryResponse)
+def creator_directory(
+    q: Optional[str] = Query(default=None, max_length=240),
+    niche: Optional[str] = Query(default=None, max_length=100),
+    platform: Optional[str] = Query(default=None, max_length=50),
+    creator_ids: list[int] = Query(default=[]),
+    saved_only: bool = Query(default=False),
+    sort_by: str = Query(default="recommended", pattern="^(recommended|followers|engagement|name)$"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=24, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Browse every creator profile, including profiles without metric snapshots."""
+    creators = (
+        db.query(Creator)
+        .options(selectinload(Creator.social_accounts))
+        .order_by(Creator.creator_id)
+        .all()
+    )
+    account_ids = [account.account_id for creator in creators for account in creator.social_accounts]
+    latest_metrics = {}
+    if account_ids:
+        rows = (
+            db.query(CreatorMetric)
+            .filter(
+                CreatorMetric.account_id.in_(account_ids),
+                CreatorMetric.data_source != "youtube_public",
+            )
+            .order_by(CreatorMetric.metric_date.desc(), CreatorMetric.metric_id.desc())
+            .all()
+        )
+        for row in rows:
+            latest_metrics.setdefault(row.account_id, row)
+
+    documents = [creator_document(creator, creator.social_accounts) for creator in creators]
+    scores = semantic_scores(q, documents) if q and len(q.strip()) >= 2 and documents else [0.0] * len(creators)
+    niches = sorted({creator.niche for creator in creators if creator.niche})
+    platforms = sorted({account.platform for creator in creators for account in creator.social_accounts if account.platform})
+    if saved_only and not creator_ids:
+        creators = []
+        documents = []
+        scores = []
+    elif creator_ids:
+        allowed_ids = set(creator_ids)
+        selected = [(creator, document, score) for creator, document, score in zip(creators, documents, scores) if creator.creator_id in allowed_ids]
+        creators = [entry[0] for entry in selected]
+        documents = [entry[1] for entry in selected]
+        scores = [entry[2] for entry in selected]
+    items = []
+    for creator, document, score in zip(creators, documents, scores):
+        accounts = creator.social_accounts
+        if niche and niche.casefold() not in (creator.niche or "").casefold():
+            continue
+        if platform and not any(platform.casefold() in account.platform.casefold() for account in accounts):
+            continue
+        if q and len(q.strip()) >= 2 and score <= 0:
+            continue
+        if q and len(q.strip()) < 2 and q.casefold() not in document.casefold():
+            continue
+        account, metric = max(
+            ((account, latest_metrics.get(account.account_id)) for account in accounts),
+            key=lambda pair: (
+                pair[1].avg_views if pair[1] else 0,
+                pair[1].followers if pair[1] else pair[0].followers or 0,
+            ),
+            default=(None, None),
+        )
+        followers = int(metric.followers if metric else account.followers if account else 0)
+        avg_views = int(metric.avg_views or 0) if metric else 0
+        engagement = float(metric.engagement_rate or 0) if metric else 0.0
+        performance = calculate_performance_score(
+            engagement_rate=engagement,
+            average_views=avg_views,
+            follower_growth=0,
+            followers=followers,
+            view_ratio=(avg_views / followers if followers else 0),
+        ) if metric else 0.0
+        items.append(CreatorDirectoryItem(
+            creator_id=creator.creator_id,
+            username=creator.username,
+            display_name=creator.display_name,
+            bio=creator.bio,
+            niche=creator.niche,
+            country=creator.country,
+            city=creator.city,
+            platform=account.platform if account else None,
+            followers=followers,
+            average_views=avg_views,
+            engagement_rate=engagement,
+            performance_score=performance,
+            has_metrics=metric is not None,
+            relevance_score=round(max(0, min(1, score)) * 100, 1) if q and len(q.strip()) >= 2 else None,
+        ))
+
+    if sort_by == "followers":
+        items.sort(key=lambda item: (-item.followers, item.creator_id))
+    elif sort_by == "engagement":
+        items.sort(key=lambda item: (-item.engagement_rate, item.creator_id))
+    elif sort_by == "name":
+        items.sort(key=lambda item: (item.display_name or item.username).casefold())
+    elif q and len(q.strip()) >= 2:
+        items.sort(key=lambda item: (-(item.relevance_score or 0), -item.performance_score, item.creator_id))
+    else:
+        items.sort(key=lambda item: (-item.performance_score, -item.followers, item.creator_id))
+
+    total = len(items)
+    start = (page - 1) * limit
+    return CreatorDirectoryResponse(
+        page=page,
+        limit=limit,
+        total=total,
+        total_pages=(total + limit - 1) // limit,
+        niches=niches,
+        platforms=platforms,
+        results=items[start:start + limit],
+    )
 
 
 @router.get(

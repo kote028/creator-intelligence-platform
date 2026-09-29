@@ -35,6 +35,10 @@ YOUTUBE_API_KEY: str | None = os.getenv("YOUTUBE_API_KEY") or None
 YOUTUBE_API_TIMEOUT_SECONDS: float = float(
     os.getenv("YOUTUBE_API_TIMEOUT_SECONDS", "10")
 )
+GOOGLE_CLIENT_ID: str | None = os.getenv("GOOGLE_CLIENT_ID") or None
+OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY") or None
+OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-6-astra")
+OPENAI_TIMEOUT_SECONDS: float = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
 
 ALLOWED_ORIGINS: list[str] = [
     origin.strip()
