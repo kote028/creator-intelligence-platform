@@ -49,3 +49,7 @@ class TokenResponse(BaseModel):
     token_type: str
     user_id: int
     role: str
+    email: EmailStr
+    creator_id: int | None = None
+    brand_id: int | None = None
+    google_linked: bool = False

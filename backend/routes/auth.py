@@ -31,7 +31,11 @@ def _token_response(user: User) -> dict:
         "access_token": create_access_token({"sub": str(user.user_id), "role": user.role}),
         "token_type": "bearer",
         "user_id": user.user_id,
+        "email": user.email,
         "role": user.role,
+        "creator_id": user.creator.creator_id if user.creator else None,
+        "brand_id": user.brand.brand_id if user.brand else None,
+        "google_linked": bool(user.google_subject),
     }
 
 

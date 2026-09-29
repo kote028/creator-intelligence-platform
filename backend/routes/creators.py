@@ -23,6 +23,7 @@ from schemas.intelligence import (
     SemanticSearchResponse,
     CreatorDirectoryItem,
     CreatorDirectoryResponse,
+    YouTubeDiscoveryResponse,
 )
 from app.advertising import ADVERTISING_FIELDS, creator_document
 from app.semantic_search import keyword_overlap, semantic_scores
@@ -31,6 +32,8 @@ from app.models.campaign_result import CampaignResult
 from app.models.campaign import Campaign
 
 from app.scoring import calculate_performance_score
+from app.youtube import YouTubeAPIError, search_public_channels, fetch_channel_metrics
+from app.config import YOUTUBE_API_KEY
 
 
 router = APIRouter(
@@ -373,6 +376,93 @@ def creator_directory(
         platforms=platforms,
         results=items[start:start + limit],
     )
+
+
+@router.get("/youtube-discover", response_model=YouTubeDiscoveryResponse)
+def youtube_creator_discovery(
+    q: str = Query(min_length=2, max_length=160),
+    page_token: Optional[str] = Query(default=None, max_length=500),
+    limit: int = Query(default=24, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+):
+    """Search YouTube's live public channel index without saving third-party profiles."""
+    try:
+        return search_public_channels(q, page_token, limit)
+    except YouTubeAPIError as error:
+        status_code = 503 if not YOUTUBE_API_KEY else 502
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+
+
+@router.get("/youtube/{channel_id}")
+def get_public_youtube_creator_analytics(
+    channel_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return {**fetch_channel_metrics(channel_id, channel_id), "data_source": "YouTube Data API v3"}
+    except YouTubeAPIError as error:
+        status_code = 503 if not YOUTUBE_API_KEY else 502
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+
+
+@router.get(
+    "/{creator_id}/analytics"
+)
+def get_public_creator_analytics(
+    creator_id: int,
+    db: Session = Depends(get_db),
+):
+    """Return public creator profile and per-account metric history for the profile page."""
+    creator = (
+        db.query(Creator)
+        .options(selectinload(Creator.social_accounts))
+        .filter(Creator.creator_id == creator_id)
+        .first()
+    )
+    if creator is None:
+        raise HTTPException(status_code=404, detail="Creator not found")
+
+    account_rows = []
+    for account in creator.social_accounts:
+        metrics = (
+            db.query(CreatorMetric)
+            .filter(CreatorMetric.account_id == account.account_id)
+            .order_by(CreatorMetric.metric_date.desc(), CreatorMetric.metric_id.desc())
+            .limit(24)
+            .all()
+        )
+        snapshots = [{
+            "metric_date": metric.metric_date,
+            "followers": int(metric.followers or 0),
+            "total_views": int(metric.total_views or 0),
+            "total_videos": int(metric.total_videos or 0),
+            "average_views": int(metric.avg_views or 0),
+            "likes": int(metric.total_likes or 0),
+            "comments": int(metric.total_comments or 0),
+            "engagement_rate": float(metric.engagement_rate or 0) if metric.data_source != "youtube_public" else None,
+            "data_source": metric.data_source,
+        } for metric in reversed(metrics)]
+        latest = snapshots[-1] if snapshots else None
+        account_rows.append({
+            "account_id": account.account_id,
+            "platform": account.platform,
+            "username": account.username,
+            "profile_url": account.profile_url,
+            "followers": latest["followers"] if latest else int(account.followers or 0),
+            "latest": latest,
+            "snapshots": snapshots,
+        })
+
+    return {
+        "creator_id": creator.creator_id,
+        "username": creator.username,
+        "display_name": creator.display_name,
+        "bio": creator.bio,
+        "niche": creator.niche,
+        "country": creator.country,
+        "city": creator.city,
+        "accounts": account_rows,
+    }
 
 
 @router.get(

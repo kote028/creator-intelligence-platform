@@ -82,6 +82,29 @@ class CreatorDirectoryResponse(BaseModel):
     results: list[CreatorDirectoryItem]
 
 
+class YouTubeCreatorResult(BaseModel):
+    channel_id: str
+    title: str
+    description: str = ""
+    custom_url: str | None = None
+    country: str | None = None
+    published_at: str | None = None
+    thumbnail_url: str | None = None
+    subscriber_count: int | None = None
+    subscriber_count_hidden: bool = False
+    total_views: int | None = None
+    video_count: int | None = None
+    channel_url: str
+
+
+class YouTubeDiscoveryResponse(BaseModel):
+    query: str
+    results: list[YouTubeCreatorResult]
+    next_page_token: str | None = None
+    result_count: int
+    data_source: str
+
+
 class AdvertisingFieldInsight(BaseModel):
     field: str
     fit_score: float

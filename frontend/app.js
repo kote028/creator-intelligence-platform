@@ -1,6 +1,6 @@
 (() => {
   const API = (localStorage.getItem('creator_marketplace_api') || 'http://localhost:8000').replace(/\/$/, '');
-  const state = { view: 'discover', user: null, profile: null, creators: [], creatorDirectory: { page: 1, limit: 24, total: 0, total_pages: 0, niches: [], platforms: [] }, campaigns: [], saved: new Set(JSON.parse(localStorage.getItem('saved_creators') || '[]')), filters: { q: '', niche: '', platform: '', sort: 'recommended' }, authMode: 'login', authRole: 'brand', googleClientId: null, searchTimer: null, searchSequence: 0, semanticSearch: false, assistantConversation: [] };
+  const state = { view: 'discover', user: null, profile: null, creators: [], creatorDirectory: { page: 1, limit: 24, total: 0, total_pages: 0, niches: [], platforms: [] }, creatorSource: 'marketplace', youtubeResults: [], youtubePageTokens: [null], youtubePage: 0, youtubeQuery: '', campaigns: [], saved: new Set(JSON.parse(localStorage.getItem('saved_creators') || '[]')), filters: { q: '', niche: '', platform: '', sort: 'recommended' }, authMode: 'login', authRole: 'brand', googleClientId: null, searchTimer: null, searchSequence: 0, semanticSearch: false, assistantConversation: [] };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const esc = (value = '') => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -26,34 +26,65 @@
     const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers };
     const response = await fetch(`${API}${path}`, { ...options, headers });
     let data; try { data = await response.json(); } catch { data = {}; }
-    if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
+    if (!response.ok) { const error = new Error(data.detail || `Request failed (${response.status})`); error.status = response.status; throw error; }
     return data;
   }
   const accountName = () => state.profile?.company_name || state.profile?.display_name || state.user?.email?.split('@')[0] || 'Guest';
   function updateAccount() { $('#account-name').textContent = accountName(); $('#account-role').textContent = state.user ? (state.user.role === 'brand' ? 'Company workspace' : 'Creator workspace') : 'Guest workspace'; $('#avatar').textContent = initials(accountName()); $('#header-sign-in').hidden = Boolean(state.user); }
   async function initialize() {
     try { state.googleClientId = (await api('/auth/oauth/google/config')).client_id; } catch { state.googleClientId = null; }
-    if (localStorage.getItem('creator_marketplace_token')) { try { state.user = await api('/auth/me'); await loadProfile(); } catch { logout(false); } }
+    if (localStorage.getItem('creator_marketplace_token')) {
+      try { state.user = await api('/auth/me'); await loadProfile(); }
+      catch (error) {
+        if (error.status === 401) { logout(false); toast('Your session expired. Sign in once to continue.'); }
+        else { console.warn('Could not verify the saved session:', error); toast('Could not verify your saved session. Check the API connection and retry.'); }
+      }
+    }
     updateAccount(); await navigate(location.hash.slice(1) || 'discover');
   }
   async function loadProfile() { try { state.profile = await api(state.user.role === 'brand' ? '/brands/me' : '/creators/me'); } catch (error) { if (!String(error.message).includes('not found')) console.warn(error); state.profile = null; } updateAccount(); }
   async function navigate(view) {
-    state.view = ['discover', 'campaigns', 'partnerships', 'profile'].includes(view) ? view : 'discover'; history.replaceState(null, '', `#${state.view}`);
+    const creatorRoute = /^creator\/(\d+)$/.exec(view), youtubeRoute = /^youtube\/([A-Za-z0-9_-]{6,})$/.exec(view);
+    state.view = creatorRoute || youtubeRoute ? 'creator-detail' : ['discover', 'campaigns', 'partnerships', 'profile'].includes(view) ? view : 'discover';
+    state.creatorId = creatorRoute ? Number(creatorRoute[1]) : null;
+    state.youtubeChannelId = youtubeRoute?.[1] || null;
+    history.replaceState(null, '', `#${creatorRoute || youtubeRoute ? view : state.view}`);
     $$('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.view === state.view));
-    const labels = { discover: 'Discover creators', campaigns: 'Campaigns', partnerships: 'Partnerships', profile: 'My profile' }; $('#crumb').textContent = labels[state.view];
-    if (state.view === 'discover') await renderDiscover(); else if (state.view === 'campaigns') await renderCampaigns(); else if (state.view === 'partnerships') await renderPartnerships(); else await renderProfile();
+    const labels = { discover: 'Discover creators', campaigns: 'Campaigns', partnerships: 'Partnerships', profile: 'My profile', 'creator-detail': 'Creator analytics' }; $('#crumb').textContent = labels[state.view];
+    if (state.view === 'discover') await renderDiscover(); else if (state.view === 'campaigns') await renderCampaigns(); else if (state.view === 'partnerships') await renderPartnerships(); else if (state.view === 'creator-detail') state.youtubeChannelId ? await renderYouTubeDetails(state.youtubeChannelId) : await renderCreatorDetails(state.creatorId); else await renderProfile();
   }
-  function authWall(title = 'Join the marketplace', copy = 'Create a free account to build your profile, manage campaigns, and start making better partnerships.') { return `<section class="auth-wall"><div class="empty-illustration">✳</div><h2>${esc(title)}</h2><p>${esc(copy)}</p><div class="auth-wall-actions"><button class="button button-dark" data-auth="register" data-auth-role="creator">I’m a creator ↗</button><button class="button button-outline" data-auth="register" data-auth-role="brand">I’m a company ↗</button></div><button class="auth-wall-login" data-auth="login" data-auth-role="brand">Already here? Sign in</button></section>`; }
+  function authWall(title = 'Join the marketplace', copy = 'Create a free account to build your profile, manage campaigns, and start making better partnerships.') {
+    if (state.user) return `<section class="auth-wall"><div class="empty-illustration">◉</div><h2>${esc(title)}</h2><p>${esc(copy)} You’re signed in as <strong>${esc(state.user.email)}</strong>.</p><button class="button button-dark" data-go="profile">Finish your profile ↗</button></section>`;
+    return `<section class="auth-wall"><div class="empty-illustration">✳</div><h2>${esc(title)}</h2><p>${esc(copy)}</p><div class="auth-wall-actions"><button class="button button-dark" data-auth="register" data-auth-role="creator">I’m a creator ↗</button><button class="button button-outline" data-auth="register" data-auth-role="brand">I’m a company ↗</button></div><button class="auth-wall-login" data-auth="login" data-auth-role="brand">Already here? Sign in</button></section>`;
+  }
   async function renderDiscover() {
     const page = $('#page'); page.innerHTML = `<div class="loading">Finding your next great collaboration…</div>`;
     try { state.creatorDirectory = await api('/creators/directory?page=1&limit=24'); state.creators = state.creatorDirectory.results; } catch (error) { page.innerHTML = `<div class="heading-row"><div><div class="eyebrow">Creator intelligence</div><h1>Find your next great collab</h1><p class="subhead">A great partnership starts with the right creator.</p></div></div><div class="error-state"><div class="empty-illustration">⌕</div><h2>Couldn’t reach the marketplace</h2><p>${esc(error.message)}. Make sure the API is running at <code>${esc(API)}</code>.</p><button class="button button-outline" id="retry-discover">Try again</button></div>`; $('#retry-discover').onclick = renderDiscover; return; }
-    page.innerHTML = `<section class="hero-stage"><div class="hero-copy"><div class="hero-kicker"><i></i> THE CREATOR ECONOMY, IN MOTION</div><h1>Culture moves.<br><span>Find who moves it.</span></h1><p>Creator partnerships, built around the people and ideas your audience already loves.</p><div class="hero-actions"><button class="button button-accent" id="hero-company">Build a campaign <span>↗</span></button><button class="hero-link" id="hero-creator">I’m a creator <span>↗</span></button></div><div class="hero-trust"><div class="avatar-stack"><b>J</b><b>M</b><b>A</b><b>+</b></div><span>Better matches start with real impact</span></div></div><div class="hero-art"><div class="art-glow"></div><div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div><div class="campaign-preview"><div class="preview-top"><span>FOLIO CAMPAIGN / 024</span><span class="preview-live"><i></i> LIVE</span></div><div class="preview-image"><div class="sun-disc"></div><div class="shape-bottle"></div><div class="preview-caption">Make it<br><em>matter.</em></div><span class="preview-chip">NEW DROP · CULTURE IN COLOR</span></div><div class="preview-bottom"><div class="mini-creator"><b>R</b><span><strong>Riya Mehta</strong><small>Beauty · Mumbai</small></span></div><div class="match-score"><strong>96</strong><small>FIT SCORE</small></div></div></div><div class="floating-note note-top"><span>✳</span> Made for your audience</div><div class="floating-note note-bottom"><b>+42%</b><span>engagement lift</span></div><div class="hero-stamp">REAL<br>PEOPLE<br><span>✳</span></div></div><div class="hero-index"><span>01 — DISCOVER</span><span>MAKE BETTER PARTNERSHIPS <b>↗</b></span></div></section><div class="heading-row discovery-heading"><div><div class="eyebrow">Creator intelligence</div><h2>Find your next great collab</h2><p class="subhead">Meet creators who move people, not just numbers.</p></div><div class="heading-actions"><button class="button button-outline" id="saved-filter">♡ Saved creators</button><button class="button button-dark" id="create-campaign-inline">Create campaign ＋</button></div></div><div class="search-panel"><label class="search-box"><span>⌕</span><input id="creator-search" type="search" placeholder="Search creators, niches, or locations" value="${esc(state.filters.q)}" /></label><select id="niche-filter"><option value="">All niches</option>${optionsFrom(state.creatorDirectory.niches, state.filters.niche)}</select><select id="platform-filter"><option value="">All platforms</option>${optionsFrom(state.creatorDirectory.platforms, state.filters.platform)}</select><select id="sort-filter"><option value="recommended">Recommended</option><option value="performance">Top performance</option><option value="followers">Most followers</option><option value="name">Name</option></select></div><div class="result-line"><span><strong id="result-count">${state.creatorDirectory.total}</strong> creators in the marketplace</span><span id="directory-status">Browse real creator profiles · metrics shown when available</span></div><div class="creator-grid" id="creator-grid"></div><nav class="pagination" id="creator-pagination" aria-label="Creator pages"></nav><div class="page-footer">Creator quality, measured beyond follower count.</div>`;
+    page.innerHTML = `<section class="hero-stage"><div class="hero-copy"><div class="hero-kicker"><i></i> THE CREATOR ECONOMY, IN MOTION</div><h1>Culture moves.<br><span>Find who moves it.</span></h1><p>Creator partnerships, built around the people and ideas your audience already loves.</p><div class="hero-actions"><button class="button button-accent" id="hero-company">Build a campaign <span>↗</span></button><button class="hero-link" id="hero-creator">I’m a creator <span>↗</span></button></div><div class="hero-trust"><div class="avatar-stack"><b>J</b><b>M</b><b>A</b><b>+</b></div><span>Better matches start with real impact</span></div></div><div class="hero-art"><div class="art-glow"></div><div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div><div class="campaign-preview"><div class="preview-top"><span>FOLIO CAMPAIGN / 024</span><span class="preview-live"><i></i> LIVE</span></div><div class="preview-image"><div class="sun-disc"></div><div class="shape-bottle"></div><div class="preview-caption">Make it<br><em>matter.</em></div><span class="preview-chip">NEW DROP · CULTURE IN COLOR</span></div><div class="preview-bottom"><div class="mini-creator"><b>R</b><span><strong>Riya Mehta</strong><small>Beauty · Mumbai</small></span></div><div class="match-score"><strong>96</strong><small>FIT SCORE</small></div></div></div><div class="floating-note note-top"><span>✳</span> Made for your audience</div><div class="floating-note note-bottom"><b>+42%</b><span>engagement lift</span></div><div class="hero-stamp">REAL<br>PEOPLE<br><span>✳</span></div></div><div class="hero-index"><span>01 — DISCOVER</span><span>MAKE BETTER PARTNERSHIPS <b>↗</b></span></div></section><div class="heading-row discovery-heading"><div><div class="eyebrow">Creator intelligence</div><h2>Find your next great collab</h2><p class="subhead">Meet creators who move people, not just numbers.</p></div><div class="heading-actions"><button class="button button-outline" id="saved-filter">♡ Saved creators</button><button class="button button-dark" id="create-campaign-inline">Create campaign ＋</button></div></div><div class="directory-source-switch"><button class="source-tab active" data-creator-source="marketplace">Folio members <span>Joined creators</span></button><button class="source-tab" data-creator-source="youtube">YouTube discovery <span>Live public channels</span></button><small>Public channel stats come directly from YouTube and are not saved as Folio creator accounts.</small></div><div class="search-panel"><label class="search-box"><span>⌕</span><input id="creator-search" type="search" placeholder="Search creators, niches, or locations" value="${esc(state.filters.q)}" /></label><select id="niche-filter"><option value="">All niches</option>${optionsFrom(state.creatorDirectory.niches, state.filters.niche)}</select><select id="platform-filter"><option value="">All platforms</option>${optionsFrom(state.creatorDirectory.platforms, state.filters.platform)}</select><select id="sort-filter"><option value="recommended">Recommended</option><option value="performance">Top performance</option><option value="followers">Most followers</option><option value="engagement">Top engagement</option><option value="name">Name</option></select></div><div class="result-line"><span><strong id="result-count">${state.creatorDirectory.total}</strong> creators in the marketplace</span><span id="directory-status">Browse real creator profiles · metrics shown when available</span></div><div class="creator-grid" id="creator-grid"></div><nav class="pagination" id="creator-pagination" aria-label="Creator pages"></nav><div class="page-footer">Creator quality, measured beyond follower count.</div>`;
     $('.hero-stage').outerHTML = `<section class="portfolio-hero"><div class="portfolio-photo" role="img" aria-label="Editorial portrait in warm natural light"></div><div class="portfolio-shade"></div><div class="portfolio-copy"><div class="portfolio-kicker"><span></span> FOLIO · CREATOR STORIES</div><h1>People make<br><em>the difference.</em></h1><p>Find creators whose point of view gives your next campaign a pulse.</p><div class="portfolio-actions"><button class="button button-accent" id="hero-company">Find your people <span>↗</span></button><button class="portfolio-link" id="hero-creator">Join as a creator <span>↗</span></button></div></div><div class="portfolio-caption"><span>01 / CREATOR PORTRAITS</span><span>REAL PEOPLE. REAL PARTNERSHIPS.</span></div><div class="portfolio-scroll">SCROLL TO DISCOVER <span>↓</span></div></section>`;
     $('#niche-filter').value = state.filters.niche; $('#platform-filter').value = state.filters.platform; $('#sort-filter').value = state.filters.sort;
-    $('#creator-search').addEventListener('input', event => { state.filters.q = event.target.value; clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => loadCreatorDirectory(1), 280); });
+    $('#creator-search').addEventListener('input', event => { state.filters.q = event.target.value; clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => state.creatorSource === 'youtube' ? loadYouTubePage(0, true) : loadCreatorDirectory(1), state.creatorSource === 'youtube' ? 650 : 280); });
+    $$('[data-creator-source]').forEach(button => button.onclick = () => switchCreatorSource(button.dataset.creatorSource));
     ['niche-filter', 'platform-filter', 'sort-filter'].forEach(id => $(`#${id}`).addEventListener('change', event => { if (id === 'niche-filter') state.filters.niche = event.target.value; if (id === 'platform-filter') state.filters.platform = event.target.value; if (id === 'sort-filter') state.filters.sort = event.target.value; loadCreatorDirectory(1); }));
     $('#saved-filter').onclick = () => { state.filters.savedOnly = !state.filters.savedOnly; $('#saved-filter').classList.toggle('button-lime', state.filters.savedOnly); $('#saved-filter').innerHTML = state.filters.savedOnly ? '♥ Showing saved' : '♡ Saved creators'; loadCreatorDirectory(1); };
-    $('#create-campaign-inline').onclick = openCampaignDialog; $('#hero-company').onclick = () => state.user?.role === 'brand' ? openCampaignDialog() : openAuth('register', 'brand'); $('#hero-creator').onclick = () => openAuth('register', 'creator'); renderCreatorCards();
+    $('#create-campaign-inline').onclick = () => state.user?.role === 'brand' ? openCampaignDialog() : state.user ? toast('This workspace is signed in as a creator. Switch to a company account to create campaigns.') : openAuth('register', 'brand');
+    $('#hero-company').onclick = () => state.user?.role === 'brand' ? openCampaignDialog() : state.user ? toast('You’re signed in as a creator. Use a company account to create campaigns.') : openAuth('register', 'brand');
+    $('#hero-creator').onclick = () => state.user?.role === 'creator' ? navigate('profile') : state.user ? toast('You’re signed in with a company account.') : openAuth('register', 'creator');
+    if (state.creatorSource === 'youtube') switchCreatorSource('youtube'); else renderCreatorCards();
+  }
+  function switchCreatorSource(source) {
+    if (source === 'youtube' && !state.user) { openAuth('login', 'brand'); toast('Sign in to search live YouTube channels'); return; }
+    state.creatorSource = source;
+    $$('[data-creator-source]').forEach(button => button.classList.toggle('active', button.dataset.creatorSource === source));
+    ['niche-filter', 'platform-filter', 'sort-filter'].forEach(id => { $(`#${id}`).hidden = source === 'youtube'; });
+    $('#creator-search').placeholder = source === 'youtube' ? 'Search YouTube channels by topic, creator, or keyword' : 'Search creators, niches, or locations';
+    $('#saved-filter').hidden = source === 'youtube';
+    if (source === 'youtube') {
+      $('#directory-status').textContent = 'Search public YouTube channels · add a topic above';
+      $('#creator-grid').innerHTML = `<div class="empty-state"><div class="empty-illustration">⌕</div><h2>Search the YouTube creator index</h2><p>Try a topic such as skincare, street food, travel, gaming, or fitness.</p></div>`;
+      $('#result-count').textContent = '—'; $('#creator-pagination').innerHTML = '';
+      if (state.filters.q.trim().length >= 2) loadYouTubePage(0, true);
+    } else loadCreatorDirectory(1);
   }
   async function loadCreatorDirectory(page = state.creatorDirectory.page || 1, initial = true) {
     const sequence = ++state.searchSequence;
@@ -70,6 +101,38 @@
       renderCreatorCards();
     } catch (error) { if (!initial && sequence === state.searchSequence) toast(`Creator search unavailable: ${error.message}`); }
   }
+  async function loadYouTubePage(page = 0, reset = false) {
+    const query = state.filters.q.trim();
+    if (query.length < 2) { $('#directory-status').textContent = 'Enter at least two characters to search public YouTube channels'; return; }
+    if (!state.user) { openAuth('login', 'brand'); return; }
+    if (reset || query !== state.youtubeQuery) { state.youtubeQuery = query; state.youtubePageTokens = [null]; page = 0; }
+    const token = state.youtubePageTokens[page];
+    if (page > 0 && !token) return;
+    const sequence = ++state.searchSequence;
+    $('#directory-status').textContent = 'Searching YouTube for public channels…';
+    $('#creator-grid').innerHTML = `<div class="loading">Finding public creator channels…</div>`;
+    try {
+      const params = new URLSearchParams({ q: query, limit: 24 }); if (token) params.set('page_token', token);
+      const result = await api(`/creators/youtube-discover?${params}`);
+      if (sequence !== state.searchSequence || state.creatorSource !== 'youtube') return;
+      state.youtubeResults = result.results; state.youtubePage = page;
+      if (result.next_page_token) state.youtubePageTokens[page + 1] = result.next_page_token;
+      $('#creator-grid').innerHTML = result.results.length ? result.results.map(youtubeCreatorCard).join('') : `<div class="empty-state"><h2>No channels found</h2><p>Try a broader topic or another keyword.</p></div>`;
+      $('#result-count').textContent = result.result_count;
+      $('#directory-status').textContent = `${result.data_source} · live results for “${query}”`;
+      $('#creator-pagination').innerHTML = `<button class="page-button" data-youtube-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>← Previous</button><span>Results page <strong>${page + 1}</strong></span><button class="page-button" data-youtube-page="${page + 1}" ${!result.next_page_token ? 'disabled' : ''}>Next →</button>`;
+      $$('[data-youtube-page]').forEach(button => button.addEventListener('click', () => loadYouTubePage(Number(button.dataset.youtubePage))));
+      $$('[data-open-youtube]').forEach(button => button.onclick = () => navigate(`youtube/${button.dataset.openYoutube}`));
+    } catch (error) {
+      if (sequence !== state.searchSequence) return;
+      $('#creator-grid').innerHTML = `<div class="error-state"><h2>YouTube discovery isn’t available</h2><p>${esc(error.message)}</p><small>The site owner needs to configure YOUTUBE_API_KEY on the backend.</small></div>`;
+      $('#directory-status').textContent = 'YouTube connection unavailable'; $('#creator-pagination').innerHTML = '';
+    }
+  }
+  function youtubeCreatorCard(creator) {
+    const audience = creator.subscriber_count_hidden ? 'Hidden by channel owner' : creator.subscriber_count == null ? 'Unavailable' : number(creator.subscriber_count);
+    return `<article class="creator-card youtube-creator-card"><div class="youtube-cover">${creator.thumbnail_url ? `<img src="${esc(creator.thumbnail_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : `<span>${esc(initials(creator.title))}</span>`}<span class="youtube-source-label">YOUTUBE · PUBLIC</span></div><div class="creator-body"><div class="name-line"><span class="creator-name">${esc(creator.title)}</span></div><div class="handle">Channel ID · ${esc(creator.channel_id)}${creator.country ? ` · ${esc(creator.country)}` : ''}</div><p class="creator-desc">${esc(creator.description || 'No channel description provided.').slice(0, 220)}</p><div class="card-stats"><div class="stat"><b>${audience}</b><small>Subscribers</small></div><div class="stat"><b>${creator.total_views == null ? '—' : number(creator.total_views)}</b><small>Channel views</small></div><div class="stat"><b>${creator.video_count == null ? '—' : number(creator.video_count)}</b><small>Videos</small></div></div><div class="card-footer"><button class="button button-outline" data-open-youtube="${esc(creator.channel_id)}">View public analytics ↗</button><a class="button button-light" href="${esc(creator.channel_url)}" target="_blank" rel="noopener noreferrer">Open YouTube</a></div></div></article>`;
+  }
   function optionsFrom(values, selected) { return [...new Set(values.filter(Boolean))].sort().map(value => `<option ${value === selected ? 'selected' : ''} value="${esc(value)}">${esc(value)}</option>`).join(''); }
   function renderCreatorCards() {
     const creators = state.creators;
@@ -84,13 +147,52 @@
     $('#clear-filters')?.addEventListener('click', () => { state.filters = { q: '', niche: '', platform: '', sort: 'recommended' }; state.filters.savedOnly = false; renderDiscover(); });
     $$('.save-button').forEach(button => button.onclick = () => { const id = Number(button.dataset.id); state.saved.has(id) ? state.saved.delete(id) : state.saved.add(id); localStorage.setItem('saved_creators', JSON.stringify([...state.saved])); button.classList.toggle('saved', state.saved.has(id)); button.textContent = state.saved.has(id) ? '♥' : '♡'; if (state.filters.savedOnly) loadCreatorDirectory(state.creatorDirectory.page); });
     $$('.invite-creator').forEach(button => button.onclick = () => state.user?.role === 'brand' ? inviteCreator(Number(button.dataset.id)) : navigate('campaigns'));
+    $$('[data-view-creator]').forEach(button => button.onclick = () => navigate(`creator/${button.dataset.viewCreator}`));
   }
   function creatorCard(c) {
     const saved = state.saved.has(c.creator_id), name = c.display_name || c.username, location = [c.city, c.country].filter(Boolean).join(', ') || 'Location not listed';
     const label = c.relevance_score != null ? `Topic match <b>${Number(c.relevance_score).toFixed(0)}%</b>` : `Performance <b>${Number(c.performance_score || 0).toFixed(0)}</b>`;
     const action = state.user?.role === 'brand' ? 'Invite to campaign ↗' : 'See campaigns ↗';
     const hasMetrics = c.has_metrics ?? Boolean(c.average_views || c.engagement_rate || c.performance_score);
-    return `<article class="creator-card"><div class="creator-cover"><div class="cover-art"></div><div class="cover-glow"></div><div class="creator-avatar"><div class="portrait">${esc(initials(name))}</div></div><button class="save-button ${saved ? 'saved' : ''}" data-id="${c.creator_id}" aria-label="${saved ? 'Unsave' : 'Save'} creator">${saved ? '♥' : '♡'}</button></div><div class="creator-body"><div class="name-line"><span class="creator-name">${esc(name)}</span></div><div class="handle">@${esc(c.username)} · ${esc(location)}</div><p class="creator-desc">${esc(c.bio || `${c.niche || 'Creator'} profile${hasMetrics ? ` · ${c.platform || 'Social'} metrics available` : ' · performance data not shared yet'}.`)}</p><div class="tags"><span class="tag">${esc(c.niche || 'Creator')}</span><span class="tag">${esc(c.platform || 'Platform not listed')}</span>${c.country ? `<span class="tag">${esc(c.country)}</span>` : ''}</div><div class="card-stats"><div class="stat"><b>${number(c.followers)}</b><small>Followers${hasMetrics ? '' : ' · profile'}</small></div><div class="stat"><b>${hasMetrics ? number(c.average_views) : '—'}</b><small>Avg. views</small></div><div class="stat"><b class="engagement">${hasMetrics ? `${Number(c.engagement_rate || 0).toFixed(1)}%` : '—'}</b><small>Engagement</small></div></div><div class="card-footer"><span class="score">${label}</span><button class="button button-light invite-creator" data-id="${c.creator_id}">${action}</button></div></div></article>`;
+    return `<article class="creator-card"><div class="creator-cover"><div class="cover-art"></div><div class="cover-glow"></div><div class="creator-avatar"><div class="portrait">${esc(initials(name))}</div></div><button class="save-button ${saved ? 'saved' : ''}" data-id="${c.creator_id}" aria-label="${saved ? 'Unsave' : 'Save'} creator">${saved ? '♥' : '♡'}</button></div><div class="creator-body"><div class="name-line"><span class="creator-name">${esc(name)}</span></div><div class="handle">Creator #${c.creator_id} · @${esc(c.username)} · ${esc(location)}</div><p class="creator-desc">${esc(c.bio || `${c.niche || 'Creator'} profile${hasMetrics ? ` · ${c.platform || 'Social'} metrics available` : ' · performance data not shared yet'}.`)}</p><div class="tags"><span class="tag">${esc(c.niche || 'Creator')}</span><span class="tag">${esc(c.platform || 'Platform not listed')}</span>${c.country ? `<span class="tag">${esc(c.country)}</span>` : ''}</div><div class="card-stats"><div class="stat"><b>${number(c.followers)}</b><small>Followers${hasMetrics ? '' : ' · profile'}</small></div><div class="stat"><b>${hasMetrics ? number(c.average_views) : '—'}</b><small>Avg. views</small></div><div class="stat"><b class="engagement">${hasMetrics ? `${Number(c.engagement_rate || 0).toFixed(1)}%` : '—'}</b><small>Engagement</small></div></div><div class="card-footer"><button class="button button-outline" data-view-creator="${c.creator_id}">Open profile + analytics ↗</button><button class="button button-light invite-creator" data-id="${c.creator_id}">${action}</button></div></div></article>`;
+  }
+  function trendChart(snapshots) {
+    const values = snapshots.filter(row => row.followers != null).map(row => Number(row.followers));
+    if (values.length < 2) return `<div class="analytics-empty">${values.length ? 'Add another dated metric snapshot to see follower growth over time.' : 'No follower history is available for this account yet.'}</div>`;
+    const width = 560, height = 150, min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
+    const points = values.map((value, index) => `${Math.round(index * width / (values.length - 1))},${Math.round(height - 12 - (value - min) / span * (height - 24))}`).join(' ');
+    return `<svg class="creator-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Follower count trend"><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><text x="4" y="${height - 1}">${number(min)}</text><text x="${width - 72}" y="${height - 1}">${number(max)}</text></svg>`;
+  }
+  async function renderCreatorDetails(creatorId) {
+    const page = $('#page');
+    page.innerHTML = `<div class="loading">Loading creator profile and analytics…</div>`;
+    try {
+      const data = await api(`/creators/${creatorId}/analytics`);
+      const latestAccounts = data.accounts.map(account => {
+        const latest = account.latest, yt = latest?.data_source === 'youtube_public';
+        const url = /^https?:\/\//i.test(account.profile_url || '') ? esc(account.profile_url) : '';
+        return `<article class="creator-account-analytics"><div class="creator-account-head"><div><span class="eyebrow">${esc(account.platform)}</span><h3>@${esc(account.username)}</h3></div>${url ? `<a class="button button-outline" href="${url}" target="_blank" rel="noopener noreferrer">Open social profile ↗</a>` : ''}</div>${latest ? `<div class="analytics-metrics"><div><small>${yt ? 'Subscribers' : 'Followers'}</small><strong>${number(latest.followers)}</strong></div>${yt ? `<div><small>Channel views</small><strong>${number(latest.total_views)}</strong></div><div><small>Videos</small><strong>${number(latest.total_videos)}</strong></div>` : `<div><small>Average views</small><strong>${number(latest.average_views)}</strong></div><div><small>Engagement rate</small><strong>${latest.engagement_rate == null ? '—' : `${Number(latest.engagement_rate).toFixed(1)}%`}</strong></div>`}</div><div class="analytics-chart-head"><strong>${yt ? 'Subscriber history' : 'Follower history'}</strong><small>${latest.metric_date ? `Latest snapshot · ${esc(latest.metric_date)}` : 'Latest available snapshot'}</small></div>${trendChart(account.snapshots)}</div>` : `<div class="analytics-empty">No analytics snapshots yet. The creator can connect an account and add metrics from their profile.</div>`}</article>`;
+      }).join('');
+      page.innerHTML = `<div class="creator-detail-top"><button class="button button-outline" id="creator-detail-back">← Back to creators</button><span class="eyebrow">CREATOR PROFILE · #${data.creator_id}</span></div><section class="creator-detail-hero"><div class="detail-monogram">${esc(initials(data.display_name || data.username))}</div><div><div class="eyebrow">${esc(data.niche || 'Creator')}</div><h1>${esc(data.display_name || data.username)}</h1><p class="subhead">@${esc(data.username)} · ${esc([data.city, data.country].filter(Boolean).join(', ') || 'Location not listed')}</p><p>${esc(data.bio || 'This creator has not added a bio yet.')}</p></div><button class="button button-dark" id="detail-invite">${state.user?.role === 'brand' ? 'Invite to campaign ↗' : 'Explore campaigns ↗'}</button></section><div class="section-heading"><h2>Account analytics</h2><span class="subhead">Snapshots by connected platform. No estimated figures.</span></div><div class="creator-analytics-list">${latestAccounts || `<div class="analytics-empty">No social accounts or analytics are connected to this creator profile yet.</div>`}</div><p class="analytics-note">YouTube figures are public channel statistics. Engagement and average views appear only when the creator has shared those metrics.</p>`;
+      $('#creator-detail-back').onclick = () => navigate('discover');
+      $('#detail-invite').onclick = () => state.user?.role === 'brand' ? inviteCreator(Number(data.creator_id)) : state.user ? navigate('campaigns') : openAuth('login', 'brand');
+    } catch (error) {
+      page.innerHTML = `<div class="error-state"><h2>Creator profile couldn’t load</h2><p>${esc(error.message)}</p><button class="button button-outline" id="creator-detail-back">← Back to creators</button></div>`;
+      $('#creator-detail-back').onclick = () => navigate('discover');
+    }
+  }
+  async function renderYouTubeDetails(channelId) {
+    const page = $('#page'); page.innerHTML = `<div class="loading">Fetching fresh public YouTube channel data…</div>`;
+    try {
+      const channel = await api(`/creators/youtube/${encodeURIComponent(channelId)}`);
+      const subs = channel.subscriber_count_hidden ? 'Hidden by channel owner' : number(channel.followers);
+      const channelUrl = `https://www.youtube.com/channel/${encodeURIComponent(channel.channel_id)}`;
+      page.innerHTML = `<div class="creator-detail-top"><button class="button button-outline" id="youtube-detail-back">← Back to YouTube search</button><span class="eyebrow">PUBLIC YOUTUBE CHANNEL · ${esc(channel.channel_id)}</span></div><section class="creator-detail-hero"><div class="detail-monogram">▶</div><div><div class="eyebrow">${esc(channel.country || 'YouTube creator')}</div><h1>${esc(channel.title || channel.channel_id)}</h1><p class="subhead">${esc(channel.custom_url ? `@${channel.custom_url.replace(/^@/, '')}` : channel.channel_id)} · ${channel.published_at ? `Joined ${esc(channel.published_at.slice(0, 10))}` : 'Public channel profile'}</p><p>${esc(channel.description || 'No public channel description.')}</p></div><a class="button button-dark" href="${esc(channelUrl)}" target="_blank" rel="noopener noreferrer">Open YouTube ↗</a></section><div class="analytics-metrics youtube-detail-metrics"><div><small>Subscribers</small><strong>${subs}</strong></div><div><small>Total channel views</small><strong>${number(channel.total_views)}</strong></div><div><small>Published videos</small><strong>${number(channel.total_posts)}</strong></div></div><section class="youtube-data-note"><span>LIVE PUBLIC DATA</span><p>These are raw channel statistics returned by YouTube. Engagement rate, average views per video, audience demographics, and campaign impact are not available from this channel lookup, so Folio does not estimate them here.</p><small>Fetched now · Data source: YouTube Data API v3</small></section>`;
+      $('#youtube-detail-back').onclick = () => navigate('discover');
+    } catch (error) {
+      page.innerHTML = `<div class="error-state"><h2>Public channel data couldn’t load</h2><p>${esc(error.message)}</p><button class="button button-outline" id="youtube-detail-back">← Back to YouTube search</button></div>`;
+      $('#youtube-detail-back').onclick = () => navigate('discover');
+    }
   }
   async function inviteCreator(creatorId) {
     if (!state.user) { openAuth('register', 'brand'); toast('Create a company account to invite creators'); return; } if (state.user.role !== 'brand') { toast('Creator invitations are available to company accounts'); return; }
@@ -193,7 +295,8 @@
   function openAuth(mode = 'login', role = state.authRole) { state.authMode = mode; state.authRole = role; renderAuth(); $('#auth-dialog').showModal(); }
   async function finishAuth(auth, mode) {
     localStorage.setItem('creator_marketplace_token', auth.access_token);
-    state.user = await api('/auth/me'); state.profile = null; await loadProfile(); $('#auth-dialog').close(); updateAccount();
+    state.user = { user_id: auth.user_id, email: auth.email, role: auth.role, creator_id: auth.creator_id || null, brand_id: auth.brand_id || null, google_linked: Boolean(auth.google_linked) };
+    state.profile = null; await loadProfile(); $('#auth-dialog').close(); updateAccount();
     toast(mode === 'login' ? 'Welcome back' : 'Your account is ready'); await navigate('profile');
   }
   function setupGoogleButton(targetId = 'google-signin') {
@@ -249,8 +352,16 @@
   $$('.nav-item').forEach(button => button.addEventListener('click', () => navigate(button.dataset.view)));
   setTheme(localStorage.getItem('creator_marketplace_theme') || 'light');
   $('#theme-toggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-  $('#top-cta').addEventListener('click', () => state.user?.role === 'brand' ? openCampaignDialog() : openAuth('register', 'brand'));
-  $('#header-sign-in').addEventListener('click', () => openAuth('login', 'brand'));
+  $('#top-cta').addEventListener('click', () => state.user?.role === 'brand' ? openCampaignDialog() : state.user ? toast('You’re signed in as a creator. Switch to a company account to create campaigns.') : openAuth('register', 'brand'));
+  $('#header-sign-in').addEventListener('click', async () => {
+    if (localStorage.getItem('creator_marketplace_token') && !state.user) {
+      try { state.user = await api('/auth/me'); await loadProfile(); updateAccount(); await navigate('profile'); }
+      catch (error) { if (error.status === 401) logout(false); else { toast('The saved session could not be checked. Make sure the API is running.'); return; } }
+      if (!state.user) openAuth('login', 'brand');
+      return;
+    }
+    openAuth('login', 'brand');
+  });
   $('#account-button').addEventListener('click', () => state.user ? navigate('profile') : openAuth('login', 'brand'));
   $('#assistant-launch').addEventListener('click', () => {
     if (!state.user) { openAuth('login', 'brand'); toast('Sign in to ask about your marketplace data'); return; }
@@ -288,7 +399,7 @@
       messages.insertAdjacentHTML('beforeend', `<div class="assistant-answer"><p>${esc(error.message)}</p></div>`);
     } finally { input.disabled = false; $('button[type="submit"]', event.currentTarget).disabled = false; input.focus(); messages.scrollTop = messages.scrollHeight; }
   });
-  document.addEventListener('click', event => { const auth = event.target.closest('[data-auth]'); if (auth) openAuth(auth.dataset.auth, auth.dataset.authRole || state.authRole); });
+  document.addEventListener('click', event => { const auth = event.target.closest('[data-auth]'); if (auth) openAuth(auth.dataset.auth, auth.dataset.authRole || state.authRole); const go = event.target.closest('[data-go]'); if (go) navigate(go.dataset.go); });
   window.addEventListener('hashchange', () => { const view = location.hash.slice(1); if (view && view !== state.view) navigate(view); });
   initialize();
 })();
