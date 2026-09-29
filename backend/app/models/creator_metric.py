@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column,
     Integer,
     BigInteger,
+    String,
     ForeignKey,
     Numeric,
     DateTime,
@@ -18,6 +19,11 @@ class CreatorMetric(Base):
     __tablename__ = "creator_metrics"
 
     __table_args__ = (
+        Index(
+            "ix_creator_metrics_source_date",
+            "data_source",
+            "metric_date",
+        ),
         Index(
             "ix_creator_metrics_account_date_id",
             "account_id",
@@ -42,6 +48,7 @@ class CreatorMetric(Base):
 
     followers = Column(BigInteger, default=0)
     total_views = Column(BigInteger, default=0)
+    total_videos = Column(BigInteger, default=0)
     avg_views = Column(BigInteger, default=0)
     total_likes = Column(BigInteger, default=0)
     total_comments = Column(BigInteger, default=0)
@@ -49,6 +56,13 @@ class CreatorMetric(Base):
     engagement_rate = Column(
         Numeric(5, 2),
         default=0.00
+    )
+
+    data_source = Column(
+        String(30),
+        nullable=False,
+        default="manual",
+        server_default="manual",
     )
 
     recorded_at = Column(

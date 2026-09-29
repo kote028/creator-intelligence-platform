@@ -6,16 +6,49 @@ from routes.campaigns import router as campaign_router
 from routes.sponsorships import router as sponsorship_router
 from routes.auth import router as auth_router
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import engine
 from app.config import ALLOWED_ORIGINS
+from app.retention import delete_expired_public_youtube_metrics
+
+logger = logging.getLogger(__name__)
+
+
+async def _youtube_metric_retention_worker():
+    while True:
+        try:
+            await asyncio.to_thread(delete_expired_public_youtube_metrics)
+        except Exception:
+            # Keep the API available and retry soon after transient DB failures.
+            logger.exception("YouTube metric retention cleanup failed")
+            await asyncio.sleep(60 * 60)
+        else:
+            await asyncio.sleep(24 * 60 * 60)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    cleanup_task = asyncio.create_task(_youtube_metric_retention_worker())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(
     title="Creator Marketplace API",
     description="API for connecting brands with content creators",
-    version="1.0.0"
+    version="1.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -58,4 +91,3 @@ app.include_router(creator_metric_router)
 app.include_router(brand_router)
 app.include_router(campaign_router)
 app.include_router(sponsorship_router)
-
