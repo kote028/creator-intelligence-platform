@@ -31,6 +31,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
     os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
 )
 
+YOUTUBE_API_KEY: str | None = os.getenv("YOUTUBE_API_KEY") or None
+YOUTUBE_API_TIMEOUT_SECONDS: float = float(
+    os.getenv("YOUTUBE_API_TIMEOUT_SECONDS", "10")
+)
+
 ALLOWED_ORIGINS: list[str] = [
     origin.strip()
     for origin in os.getenv(
