@@ -7,6 +7,8 @@ class CreatorRankingResponse(BaseModel):
     display_name: str | None = None
     niche: str | None = None
     country: str | None = None
+    city: str | None = None
+    platform: str | None = None
 
     followers: int
     average_views: int

@@ -37,3 +37,16 @@ class CreatorResponse(BaseModel):
     city: Optional[str] = None
 
     social_accounts: List[SocialAccountResponse] = []
+
+
+class PublicCreatorResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    creator_id: int
+    username: str
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    niche: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    social_accounts: List[SocialAccountResponse] = []

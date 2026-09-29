@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models.creator import Creator
@@ -9,13 +9,24 @@ from app.models.creator_metric import CreatorMetric
 from app.models.user import User
 from app.auth_dependencies import get_current_user, require_creator
 
-from schemas.creator import CreatorCreate, CreatorUpdate, CreatorResponse
+from schemas.creator import CreatorCreate, CreatorUpdate, CreatorResponse, PublicCreatorResponse
 from schemas.performance import CreatorPerformanceResponse
 from schemas.ranking import CreatorRankingResponse
 
 from sqlalchemy import and_
 from typing import Optional
 from schemas.recommendation import CreatorRecommendation
+from schemas.intelligence import (
+    AdvertisingFieldInsight,
+    AdvertisingInsightsResponse,
+    SemanticCreatorResult,
+    SemanticSearchResponse,
+)
+from app.advertising import ADVERTISING_FIELDS, creator_document
+from app.semantic_search import keyword_overlap, semantic_scores
+from app.models.sponsorship import Sponsorship
+from app.models.campaign_result import CampaignResult
+from app.models.campaign import Campaign
 
 from app.scoring import calculate_performance_score
 
@@ -29,8 +40,11 @@ router = APIRouter(
 @router.post("/", response_model=CreatorResponse)
 def create_creator(
     creator: CreatorCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_creator),
 ):
+    if current_user.creator:
+        raise HTTPException(status_code=400, detail="Creator profile already exists for this account")
     existing = db.query(Creator).filter(Creator.username == creator.username).first()
     if existing:
         raise HTTPException(
@@ -39,6 +53,7 @@ def create_creator(
         )
 
     new_creator = Creator(
+        user_id=current_user.user_id,
         username=creator.username,
         display_name=creator.display_name,
         email=creator.email,
@@ -120,7 +135,7 @@ def create_my_creator_profile(
     return new_creator
 
 
-@router.get("/", response_model=list[CreatorResponse])
+@router.get("/", response_model=list[PublicCreatorResponse])
 def get_creators(
     db: Session = Depends(get_db)
 ):
@@ -156,7 +171,8 @@ def get_creator_rankings(
             metrics = (
                 db.query(CreatorMetric)
                 .filter(
-                    CreatorMetric.account_id == account.account_id
+                    CreatorMetric.account_id == account.account_id,
+                    CreatorMetric.data_source != "youtube_public",
                 )
                 .order_by(CreatorMetric.metric_date.asc())
                 .all()
@@ -215,6 +231,8 @@ def get_creator_rankings(
             "display_name": creator.display_name,
             "niche": creator.niche,
             "country": creator.country,
+            "city": creator.city,
+            "platform": latest.account.platform if latest.account else None,
             "followers": latest.followers,
             "average_views": latest.avg_views,
             "engagement_rate": float(
@@ -277,7 +295,8 @@ def get_creator_performance(
         metrics = (
             db.query(CreatorMetric)
             .filter(
-                CreatorMetric.account_id == account.account_id
+                CreatorMetric.account_id == account.account_id,
+                CreatorMetric.data_source != "youtube_public",
             )
             .order_by(CreatorMetric.metric_date.asc())
             .all()
@@ -406,6 +425,7 @@ def discover_creators(
         CreatorMetric.metric_date,
         CreatorMetric.metric_id,
     )
+        .filter(CreatorMetric.data_source != "youtube_public")
         .order_by(
             CreatorMetric.account_id,
             CreatorMetric.metric_date.desc(),
@@ -583,7 +603,189 @@ def discover_creators(
     return recommendations[start:end]
 
 
-@router.get("/{creator_id}", response_model=CreatorResponse)
+@router.get("/semantic-search", response_model=SemanticSearchResponse)
+def semantic_creator_search(
+    q: str = Query(min_length=2, max_length=240),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    creators = (
+        db.query(Creator)
+        .options(selectinload(Creator.social_accounts))
+        .order_by(Creator.creator_id)
+        .limit(5000)
+        .all()
+    )
+    documents = [creator_document(creator, creator.social_accounts) for creator in creators]
+    scores = semantic_scores(q, documents)
+    account_ids = [account.account_id for creator in creators for account in creator.social_accounts]
+    latest_metrics = {}
+    if account_ids:
+        metrics = (
+            db.query(CreatorMetric)
+            .filter(
+                CreatorMetric.account_id.in_(account_ids),
+                CreatorMetric.data_source != "youtube_public",
+            )
+            .order_by(CreatorMetric.metric_date.desc(), CreatorMetric.metric_id.desc())
+            .all()
+        )
+        for metric in metrics:
+            latest_metrics.setdefault(metric.account_id, metric)
+
+    ranked = []
+    for creator, document, score in zip(creators, documents, scores):
+        if score <= 0:
+            continue
+        account_data = []
+        for account in creator.social_accounts:
+            metric = latest_metrics.get(account.account_id)
+            account_data.append((account, metric))
+        account, metric = max(
+            account_data,
+            key=lambda pair: (pair[1].avg_views if pair[1] else 0, pair[0].followers),
+            default=(None, None),
+        )
+        followers = int(metric.followers if metric else account.followers if account else 0)
+        avg_views = int(metric.avg_views if metric else 0)
+        engagement = float(metric.engagement_rate if metric else 0)
+        performance = calculate_performance_score(
+            engagement_rate=engagement,
+            average_views=avg_views,
+            follower_growth=0,
+            followers=followers,
+            view_ratio=(avg_views / followers if followers else 0),
+        ) if metric else 0
+        ranked.append((score, SemanticCreatorResult(
+            creator_id=creator.creator_id,
+            username=creator.username,
+            display_name=creator.display_name,
+            bio=creator.bio,
+            niche=creator.niche,
+            country=creator.country,
+            city=creator.city,
+            platform=account.platform if account else None,
+            followers=followers,
+            average_views=avg_views,
+            engagement_rate=engagement,
+            performance_score=performance,
+            relevance_score=round(max(0, min(1, score)) * 100, 1),
+            matched_signals=keyword_overlap(q, document) or ["Latent topic similarity"],
+        )))
+    ranked.sort(key=lambda item: (item[0], item[1].performance_score), reverse=True)
+    offset = (page - 1) * limit
+    return SemanticSearchResponse(
+        query=q,
+        total=len(ranked),
+        indexed_creators=len(creators),
+        has_more_creators=len(creators) == 5000,
+        page=page,
+        limit=limit,
+        results=[result for _, result in ranked[offset:offset + limit]],
+    )
+
+
+@router.get("/me/advertising-insights", response_model=AdvertisingInsightsResponse)
+def get_my_advertising_insights(
+    current_user: User = Depends(require_creator),
+    db: Session = Depends(get_db),
+):
+    creator = current_user.creator
+    if creator is None:
+        raise HTTPException(status_code=404, detail="Create your creator profile before requesting insights")
+    accounts = db.query(SocialAccount).filter(SocialAccount.creator_id == creator.creator_id).all()
+    document = creator_document(creator, accounts)
+    if len(document.split()) < 2:
+        raise HTTPException(status_code=422, detail="Add a bio or niche to get advertising field insights")
+
+    fields = list(ADVERTISING_FIELDS)
+    similarities = semantic_scores(document, [ADVERTISING_FIELDS[field] for field in fields])
+    metrics = []
+    account_ids = [account.account_id for account in accounts]
+    if account_ids:
+        metrics = (
+            db.query(CreatorMetric)
+            .filter(
+                CreatorMetric.account_id.in_(account_ids),
+                CreatorMetric.data_source != "youtube_public",
+            )
+            .order_by(CreatorMetric.metric_date.desc(), CreatorMetric.metric_id.desc())
+            .all()
+        )
+    latest_by_account = {}
+    for metric in metrics:
+        latest_by_account.setdefault(metric.account_id, metric)
+    average_views = max((int(metric.avg_views) for metric in latest_by_account.values()), default=0)
+    engagement = max((float(metric.engagement_rate or 0) for metric in latest_by_account.values()), default=0)
+
+    sponsorships = (
+        db.query(Sponsorship)
+        .join(Campaign)
+        .outerjoin(
+            CampaignResult,
+            CampaignResult.sponsorship_id == Sponsorship.sponsorship_id,
+        )
+        .filter(Sponsorship.creator_id == creator.creator_id)
+        .all()
+    )
+    observed: dict[str, dict] = {}
+    for sponsorship in sponsorships:
+        result = sponsorship.result
+        field = sponsorship.campaign.advertising_field or sponsorship.campaign.target_niche or "Other / uncategorized"
+        row = observed.setdefault(field.casefold(), {
+            "field": field,
+            "campaigns": 0,
+            "impressions": 0,
+            "clicks": 0,
+            "conversions": 0,
+            "revenue": 0.0,
+        })
+        if result:
+            row["campaigns"] += 1
+            row["impressions"] += int(result.impressions)
+            row["clicks"] += int(result.clicks)
+            row["conversions"] += int(result.conversions)
+            row["revenue"] += float(result.attributed_revenue)
+
+    insights = []
+    for field, score in zip(fields, similarities):
+        historical = observed.get(field.casefold(), {})
+        signals = []
+        if creator.niche:
+            signals.append(f"Profile niche: {creator.niche}")
+        if engagement:
+            signals.append(f"Engagement rate: {engagement:.1f}%")
+        if average_views:
+            signals.append(f"Typical views per post: {average_views:,}")
+        impressions = historical.get("impressions", 0)
+        clicks = historical.get("clicks", 0)
+        conversions = historical.get("conversions", 0)
+        insights.append(AdvertisingFieldInsight(
+            field=field,
+            fit_score=round(max(0, min(1, score)) * 100, 1),
+            audience_signals=signals[:3],
+            estimated_views_per_post=average_views or None,
+            reported_campaigns=historical.get("campaigns", 0),
+            impressions=impressions,
+            clicks=clicks,
+            conversions=conversions,
+            attributed_revenue=round(historical.get("revenue", 0), 2),
+            click_through_rate=round(clicks / impressions * 100, 2) if impressions else None,
+            conversion_rate=round(conversions / clicks * 100, 2) if clicks else None,
+            evidence=("Brand-reported campaign outcomes and profile fit." if historical.get("campaigns") else "Profile fit estimate only; no campaign outcome reports are available for this field."),
+        ))
+    insights.sort(key=lambda item: (item.reported_campaigns > 0, item.fit_score), reverse=True)
+    return AdvertisingInsightsResponse(
+        creator_id=creator.creator_id,
+        profile_basis=document,
+        fields=insights[:5],
+        observed_campaigns=sum(item["campaigns"] for item in observed.values()),
+        impact_note="Field fit is inferred from profile text. Impressions, clicks, conversions, and attributed revenue are brand-reported outcomes; fit score is not a prediction of sales or ad lift.",
+    )
+
+
+@router.get("/{creator_id}", response_model=PublicCreatorResponse)
 def get_creator(
     creator_id: int,
     db: Session = Depends(get_db)
@@ -607,7 +809,8 @@ def get_creator(
 def update_creator(
     creator_id: int,
     creator_update: CreatorUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_creator),
 ):
     creator = (
         db.query(Creator)
@@ -620,6 +823,9 @@ def update_creator(
             status_code=404,
             detail="Creator not found"
         )
+
+    if current_user.creator is None or current_user.creator.creator_id != creator_id:
+        raise HTTPException(status_code=403, detail="Creator account access required")
 
     for field, value in creator_update.model_dump(exclude_unset=True).items():
         setattr(creator, field, value)
@@ -633,7 +839,8 @@ def update_creator(
 @router.delete("/{creator_id}")
 def delete_creator(
     creator_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_creator),
 ):
     creator = (
         db.query(Creator)
@@ -646,6 +853,9 @@ def delete_creator(
             status_code=404,
             detail="Creator not found"
         )
+
+    if current_user.creator is None or current_user.creator.creator_id != creator_id:
+        raise HTTPException(status_code=403, detail="Creator account access required")
 
     db.delete(creator)
     db.commit()
