@@ -1,5 +1,7 @@
 (() => {
-  const API = (localStorage.getItem('creator_marketplace_api') || 'http://localhost:8000').replace(/\/$/, '');
+  const configuredApi = new URLSearchParams(location.search).get('api');
+  if (configuredApi) localStorage.setItem('creator_marketplace_api', configuredApi);
+  const API = (configuredApi || localStorage.getItem('creator_marketplace_api') || 'http://localhost:8000').replace(/\/$/, '');
   const state = { view: 'discover', user: null, profile: null, creators: [], creatorDirectory: { page: 1, limit: 24, total: 0, total_pages: 0, niches: [], platforms: [] }, creatorSource: 'marketplace', youtubeResults: [], youtubePageTokens: [null], youtubePage: 0, youtubeQuery: '', campaigns: [], saved: new Set(JSON.parse(localStorage.getItem('saved_creators') || '[]')), filters: { q: '', niche: '', platform: '', sort: 'recommended' }, authMode: 'login', authRole: 'brand', googleClientId: null, searchTimer: null, searchSequence: 0, semanticSearch: false, assistantConversation: [] };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
