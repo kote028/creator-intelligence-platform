@@ -66,6 +66,8 @@ class Campaign(Base):
         nullable=True
     )
 
+    advertising_field = Column(String(100), nullable=True)
+
     target_country = Column(
         String(100),
         nullable=True

@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.campaign import Campaign
 from app.models.brand import Brand
+from app.models.user import User
+from app.auth_dependencies import require_brand
 
 from schemas.campaign import (
     CampaignCreate,
@@ -38,8 +40,11 @@ router = APIRouter(
 )
 def create_campaign(
     campaign: CampaignCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
+    if current_user.brand is None or current_user.brand.brand_id != campaign.brand_id:
+        raise HTTPException(status_code=403, detail="Brand account access required")
     brand = (
         db.query(Brand)
         .filter(Brand.brand_id == campaign.brand_id)
@@ -61,6 +66,7 @@ def create_campaign(
         end_date=campaign.end_date,
         status=campaign.status,
         target_niche=campaign.target_niche,
+        advertising_field=campaign.advertising_field,
         target_country=campaign.target_country,
         target_platform=campaign.target_platform,
         min_followers=campaign.min_followers,
@@ -81,7 +87,7 @@ def create_campaign(
 def get_campaigns(
     db: Session = Depends(get_db)
 ):
-    return db.query(Campaign).all()
+    return db.query(Campaign).filter(Campaign.status == "active").all()
 
 
 @router.get(
@@ -100,7 +106,7 @@ def get_campaign(
         .first()
     )
 
-    if campaign is None:
+    if campaign is None or campaign.status != "active":
         raise HTTPException(
             status_code=404,
             detail="Campaign not found"
@@ -115,8 +121,11 @@ def get_campaign(
 )
 def get_brand_campaigns(
     brand_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
+    if current_user.brand is None or current_user.brand.brand_id != brand_id:
+        raise HTTPException(status_code=403, detail="Brand account access required")
     brand = (
         db.query(Brand)
         .filter(Brand.brand_id == brand_id)
@@ -140,7 +149,8 @@ def get_brand_campaigns(
 )
 def get_campaign_recommendations(
     campaign_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
 
     campaign = (
@@ -156,6 +166,9 @@ def get_campaign_recommendations(
             status_code=404,
             detail="Campaign not found"
         )
+
+    if current_user.brand is None or campaign.brand_id != current_user.brand.brand_id:
+        raise HTTPException(status_code=403, detail="Brand account access required")
 
     creators = db.query(Creator).all()
 
@@ -192,7 +205,8 @@ def get_campaign_recommendations(
                 db.query(CreatorMetric)
                 .filter(
                     CreatorMetric.account_id
-                    == account.account_id
+                    == account.account_id,
+                    CreatorMetric.data_source != "youtube_public",
                 )
                 .order_by(
                     CreatorMetric.metric_date.asc()
@@ -388,7 +402,8 @@ def get_campaign_recommendations(
 def update_campaign(
     campaign_id: int,
     campaign_update: CampaignUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
     campaign = (
         db.query(Campaign)
@@ -402,7 +417,20 @@ def update_campaign(
             detail="Campaign not found"
         )
 
-    for field, value in campaign_update.model_dump(exclude_unset=True).items():
+    if current_user.brand is None or campaign.brand_id != current_user.brand.brand_id:
+        raise HTTPException(status_code=403, detail="Brand account access required")
+
+    changes = campaign_update.model_dump(exclude_unset=True)
+    min_followers = changes.get("min_followers", campaign.min_followers)
+    max_followers = changes.get("max_followers", campaign.max_followers)
+    start_date = changes.get("start_date", campaign.start_date)
+    end_date = changes.get("end_date", campaign.end_date)
+    if min_followers is not None and max_followers is not None and min_followers > max_followers:
+        raise HTTPException(status_code=422, detail="min_followers must not exceed max_followers")
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=422, detail="end_date must be on or after start_date")
+
+    for field, value in changes.items():
         setattr(campaign, field, value)
 
     db.commit()
@@ -414,7 +442,8 @@ def update_campaign(
 @router.delete("/{campaign_id}")
 def delete_campaign(
     campaign_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
     campaign = (
         db.query(Campaign)
@@ -427,6 +456,9 @@ def delete_campaign(
             status_code=404,
             detail="Campaign not found"
         )
+
+    if current_user.brand is None or campaign.brand_id != current_user.brand.brand_id:
+        raise HTTPException(status_code=403, detail="Brand account access required")
 
     db.delete(campaign)
     db.commit()
