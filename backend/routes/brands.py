@@ -21,8 +21,11 @@ router = APIRouter(
 )
 def create_brand(
     brand: BrandCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
+    if current_user.brand:
+        raise HTTPException(status_code=400, detail="Brand profile already exists for this account")
     existing_brand = (
         db.query(Brand)
         .filter(Brand.email == brand.email)
@@ -36,6 +39,7 @@ def create_brand(
         )
 
     new_brand = Brand(
+        user_id=current_user.user_id,
         company_name=brand.company_name,
         email=brand.email,
         website=brand.website,
@@ -151,7 +155,8 @@ def get_brand(
 def update_brand(
     brand_id: int,
     brand_update: BrandUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
     brand = (
         db.query(Brand)
@@ -164,6 +169,9 @@ def update_brand(
             status_code=404,
             detail="Brand not found"
         )
+
+    if current_user.brand is None or current_user.brand.brand_id != brand_id:
+        raise HTTPException(status_code=403, detail="Brand account access required")
 
     for field, value in brand_update.model_dump(exclude_unset=True).items():
         setattr(brand, field, value)
@@ -177,7 +185,8 @@ def update_brand(
 @router.delete("/{brand_id}")
 def delete_brand(
     brand_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_brand),
 ):
     brand = (
         db.query(Brand)
@@ -190,6 +199,9 @@ def delete_brand(
             status_code=404,
             detail="Brand not found"
         )
+
+    if current_user.brand is None or current_user.brand.brand_id != brand_id:
+        raise HTTPException(status_code=403, detail="Brand account access required")
 
     db.delete(brand)
     db.commit()
